@@ -1,0 +1,117 @@
+name: Companion App bauen
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "companion/**"
+      - ".github/workflows/companion-build.yml"
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            name: windows-x64
+            rust-target: ""
+            args: ""
+          - platform: windows-latest
+            name: windows-arm64
+            rust-target: aarch64-pc-windows-msvc
+            args: --target aarch64-pc-windows-msvc
+          - platform: macos-latest
+            name: macos
+            rust-target: ""
+            args: ""
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Frontend-Abhaengigkeiten installieren
+        working-directory: companion
+        run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: companion
+          args: ${{ matrix.args }}
+
+      - name: Installer hochladen (CI-Artifact)
+        uses: actions/upload-artifact@v7
+        with:
+          name: companion-${{ matrix.name }}
+          path: |
+            companion/src-tauri/target/release/bundle/nsis/*.exe
+            companion/src-tauri/target/release/bundle/dmg/*.dmg
+            companion/src-tauri/target/*/release/bundle/nsis/*.exe
+          if-no-files-found: ignore
+
+      - name: An GitHub-Release anhaengen
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          shopt -s nullglob
+          files=(
+            companion/src-tauri/target/release/bundle/nsis/*.exe
+            companion/src-tauri/target/release/bundle/dmg/*.dmg
+            companion/src-tauri/target/*/release/bundle/nsis/*.exe
+          )
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "Keine Installer-Datei gefunden fuer ${{ matrix.name }}"
+            exit 1
+          fi
+          gh release upload "${{ github.ref_name }}" "${files[@]}" --clobber --repo "${{ github.repository }}"
+
+  build-firmware:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [nodemcuv2, d1_mini]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: PlatformIO installieren
+        run: pip install --upgrade platformio
+
+      - name: config.h aus Vorlage anlegen
+        run: cp include/config.example.h include/config.h
+
+      - name: Firmware bauen (${{ matrix.env }})
+        run: pio run -e ${{ matrix.env }}
+
+      - name: Firmware umbenennen
+        run: cp ".pio/build/${{ matrix.env }}/firmware.bin" "pixelstatus-firmware-${{ matrix.env }}.bin"
+
+      - name: An GitHub-Release anhaengen
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.ref_name }}" "pixelstatus-firmware-${{ matrix.env }}.bin" --clobber --repo "${{ github.repository }}"

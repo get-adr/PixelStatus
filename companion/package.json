@@ -1,0 +1,14 @@
+{
+  "name": "pixelstatus-companion",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Tray/Menubar Companion fuer das ESP8266 Pixel-Status-Display",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

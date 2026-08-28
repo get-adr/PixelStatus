@@ -1,0 +1,8 @@
+.pio/
+.vscode/
+include/config.h
+.DS_Store
+companion/node_modules/
+companion/src-tauri/target/
+companion/src-tauri/gen/
+.claude/

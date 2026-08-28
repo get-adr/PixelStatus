@@ -1,0 +1,79 @@
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  margin: 0;
+  padding: 1rem;
+  font-size: 14px;
+}
+h1 { font-size: 1.2rem; margin: 0 0 .5rem; }
+h2 { font-size: .85rem; text-transform: uppercase; letter-spacing: .03em; opacity: .6; margin: 1rem 0 .4rem; }
+section { margin-bottom: .5rem; }
+.grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: .4rem; }
+button {
+  padding: .55rem; font-size: .9rem; border: 0; border-radius: .45rem;
+  background: #2563eb; color: #fff; cursor: pointer;
+}
+button:hover { background: #1d4ed8; }
+button.muted { background: #6b7280; }
+button.muted:hover { background: #4b5563; }
+/* aktiver Status (aktuell am Display angezeigt) */
+button.active { background: #059669; box-shadow: 0 0 0 2px #6ee7b7; }
+button.active:hover { background: #047857; }
+button.muted.active { background: #059669; }
+/* gewaehlter Modus (Text/Timer): Panel geoeffnet */
+button.sel { box-shadow: inset 0 0 0 2px #93c5fd; }
+button.sel.active { box-shadow: 0 0 0 2px #6ee7b7, inset 0 0 0 2px #93c5fd; }
+
+/* aufklappbares Options-Panel fuer Eigener Text / Timer */
+.hidden { display: none; }
+.cfg { margin: .5rem 0 .2rem; padding: .55rem; border: 1px solid #9ca3af55; border-radius: .45rem; }
+.cfg input[type=text] { margin-bottom: .35rem; }
+input[type=text], input[type=number], select {
+  padding: .45rem; border-radius: .4rem; border: 1px solid #9ca3af; background: transparent; color: inherit;
+}
+input[type=text], #host { width: 100%; }
+input[type=number] { width: 4.5rem; }
+input[type=range] { width: 100%; }
+label { display: inline-flex; align-items: center; gap: .3rem; margin: .25rem .6rem .25rem 0; }
+.row { display: flex; gap: .4rem; margin: .3rem 0; }
+.row select { flex: 1; }
+details { margin-top: 1rem; border-top: 1px solid #9ca3af55; padding-top: .5rem; }
+summary { cursor: pointer; font-size: .85rem; opacity: .7; }
+
+/* Geraete-Einstellungen */
+input[type=password] {
+  padding: .45rem; border-radius: .4rem; border: 1px solid #9ca3af;
+  background: transparent; color: inherit; width: 100%;
+}
+input[type=color] { width: 100%; height: 1.9rem; padding: 0; border: 1px solid #9ca3af; border-radius: .4rem; background: transparent; cursor: pointer; }
+label.f { display: block; margin: .4rem 0; font-size: .85rem; }
+label.f input[type=text], label.f input[type=password], label.f input[type=number], label.f input[type=range], label.f select {
+  display: block; width: 100%; margin-top: .15rem;
+}
+details.dev { margin-top: .4rem; margin-left: .3rem; border-top: 1px dashed #9ca3af44; padding-top: .4rem; }
+details.dev summary { opacity: .85; }
+.colorrow { display: flex; gap: .4rem; margin: .4rem 0; }
+.colorrow label { flex: 1; display: flex; flex-direction: column; gap: .15rem; font-size: .78rem; margin: 0; }
+.hint { font-size: .78rem; opacity: .6; margin: .3rem 0; }
+.hint a { color: #2563eb; }
+.msg { font-size: .78rem; opacity: .75; display: block; margin-top: .35rem; min-height: 1em; }
+
+/* Timer: Play/Pause/Stop + Hochzaehlen-Umschalter (wie die Firmware-Web-UI) */
+.switch { display: flex; align-items: center; justify-content: space-between; margin: .5rem 0 .3rem; }
+.tgl { position: relative; display: inline-block; width: 2.6rem; height: 1.4rem; flex: none; }
+.tgl input { opacity: 0; width: 0; height: 0; position: absolute; }
+.tgl .sl { position: absolute; inset: 0; background: #9ca3af55; border-radius: 1rem; transition: .2s; cursor: pointer; }
+.tgl .sl:before { content: ""; position: absolute; width: 1.1rem; height: 1.1rem; left: .15rem; top: .15rem; background: #fff; border-radius: 50%; transition: .2s; }
+.tgl input:checked + .sl { background: #2563eb; }
+.tgl input:checked + .sl:before { transform: translateX(1.2rem); }
+.tctl { display: flex; gap: .4rem; margin-top: .3rem; }
+.ticon { flex: 1; font-size: 1.1rem; }
+button:disabled { opacity: .35; cursor: default; }
+
+/* Zusatz-LEDs: schnelle Ein/Aus/Blink-Steuerung */
+.ledrows { display: flex; flex-direction: column; gap: .35rem; margin-top: .3rem; }
+.ledrow { display: flex; align-items: center; gap: .35rem; }
+.ledrow .ledname { flex: none; width: 3.4rem; font-size: .85rem; }
+.ledrow .led-s { flex: 1; padding: .45rem; font-size: .82rem; }
+.wide-alt { width: 100%; margin-top: .4rem; }

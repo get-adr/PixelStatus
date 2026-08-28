@@ -1,0 +1,524 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Montage &amp; Verkabelung · Pixel Status (Akkubetrieb)</title>
+<style>
+  html{-webkit-text-size-adjust:100%}
+  :root{
+    --paper:#eaeef2; --card:#ffffff; --ink:#152029; --muted:#5c6c78;
+    --line:#d2dbe2; --copper:#a15f27; --copper-soft:#f0e2d2;
+    --signal:#0e7a8b; --warn:#bb3b2c; --good:#2c7a54;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --shadow:0 1px 2px rgba(20,32,41,.06),0 8px 24px rgba(20,32,41,.06);
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --paper:#0c1319; --card:#131e26; --ink:#e7eef3; --muted:#93a4b1;
+      --line:#26333d; --copper:#d5964f; --copper-soft:#2b2115;
+      --signal:#3bb2c4; --warn:#e8776a; --good:#57bd8a;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"]{
+    --paper:#eaeef2; --card:#ffffff; --ink:#152029; --muted:#5c6c78;
+    --line:#d2dbe2; --copper:#a15f27; --copper-soft:#f0e2d2;
+    --signal:#0e7a8b; --warn:#bb3b2c; --good:#2c7a54;
+    --shadow:0 1px 2px rgba(20,32,41,.06),0 8px 24px rgba(20,32,41,.06);
+  }
+  :root[data-theme="dark"]{
+    --paper:#0c1319; --card:#131e26; --ink:#e7eef3; --muted:#93a4b1;
+    --line:#26333d; --copper:#d5964f; --copper-soft:#2b2115;
+    --signal:#3bb2c4; --warn:#e8776a; --good:#57bd8a;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35);
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:var(--sans); font-size:16px; line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1180px; margin:0 auto; padding:clamp(1.1rem,3vw,2.6rem) clamp(1rem,3vw,2rem) 3rem;}
+
+  .eyebrow{
+    font-family:var(--mono); font-size:.72rem; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--copper); margin:0 0 .5rem;
+  }
+  header h1{
+    font-size:clamp(1.5rem,3.5vw,2.15rem); line-height:1.15; margin:0 0 .5rem;
+    letter-spacing:-.01em; text-wrap:balance;
+  }
+  header p.lead{margin:0; max-width:68ch; color:var(--muted);}
+  .legend{
+    display:flex; flex-wrap:wrap; gap:.5rem .9rem; margin:1.1rem 0 0;
+    font-family:var(--mono); font-size:.76rem; color:var(--muted);
+  }
+  .legend span{display:inline-flex; align-items:center; gap:.45rem;}
+  .swatch{width:1.4rem; height:.3rem; border-radius:2px; display:inline-block;}
+  .sw-p{background:var(--copper)}
+  .sw-s{background:var(--signal)}
+  .sw-g{background:var(--muted)}
+  .sw-b{width:1.15rem; height:1.15rem; border-radius:50%; border:1.8px solid var(--copper); background:var(--card);}
+
+  section{
+    background:var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:clamp(1.1rem,2.5vw,1.7rem); margin-top:1.15rem; box-shadow:var(--shadow);
+  }
+  section > .eyebrow{margin-bottom:.35rem}
+  h2{font-size:1.12rem; margin:0 0 .2rem; letter-spacing:-.01em;}
+  .note{color:var(--muted); font-size:.92rem; margin:.15rem 0 1rem;}
+  .note:last-child{margin-bottom:0}
+
+  .diagram{overflow-x:auto; margin:.4rem -.3rem 0;}
+  .diagram svg{min-width:1150px; width:100%; height:auto; display:block;}
+
+  table{width:100%; border-collapse:collapse; font-size:.9rem;}
+  caption{text-align:left; color:var(--muted); font-size:.82rem; padding-bottom:.5rem;}
+  th,td{padding:.5rem .65rem; text-align:left; border-bottom:1px solid var(--line);
+        vertical-align:top;}
+  thead th{
+    font-family:var(--mono); font-size:.7rem; text-transform:uppercase;
+    letter-spacing:.08em; color:var(--muted); font-weight:600; border-bottom-color:var(--ink);
+  }
+  tbody tr:last-child td{border-bottom:none}
+  td.pin,td.gpio,code{font-family:var(--mono); font-variant-numeric:tabular-nums;}
+  td.pin{color:var(--copper); font-weight:600;}
+  td.gpio{color:var(--muted);}
+  code{background:var(--copper-soft); color:var(--ink); padding:.05rem .35rem;
+       border-radius:4px; font-size:.85em;}
+  .tw{overflow-x:auto;}
+
+  .cols{display:grid; grid-template-columns:1fr 1fr; gap:1.15rem;}
+  @media (max-width:680px){.cols{grid-template-columns:1fr}}
+
+  .phases{display:grid; grid-template-columns:repeat(5,1fr); gap:.8rem; margin:.3rem 0 0;}
+  @media (max-width:920px){.phases{grid-template-columns:repeat(2,1fr)}}
+  @media (max-width:480px){.phases{grid-template-columns:1fr}}
+  .phase{
+    border:1px solid var(--line); border-radius:10px; padding:.8rem .85rem;
+    background:var(--paper);
+  }
+  .phase .ph-tag{
+    font-family:var(--mono); font-size:.68rem; letter-spacing:.08em; color:var(--copper);
+    text-transform:uppercase; margin:0 0 .3rem;
+  }
+  .phase h3{margin:0 0 .35rem; font-size:.98rem;}
+  .phase p{margin:0; font-size:.85rem; color:var(--muted);}
+
+  ul.parts{list-style:none; padding:0; margin:.2rem 0 0; display:flex;
+           flex-direction:column; gap:.55rem;}
+  ul.parts li{padding-left:1.1rem; position:relative; font-size:.92rem;}
+  ul.parts li::before{content:"→"; position:absolute; left:0; color:var(--copper);
+                      font-family:var(--mono);}
+  ul.parts li b{font-family:var(--mono); font-weight:600;}
+
+  ol.check{list-style:none; counter-reset:c; padding:0; margin:.2rem 0 0;
+           display:flex; flex-direction:column; gap:.7rem;}
+  ol.check.numbered{counter-reset:none;}
+  ol.check li{padding-left:2.1rem; position:relative;}
+  ol.check li:not([data-n])::before{
+    counter-increment:c; content:counter(c,decimal-leading-zero);
+  }
+  ol.check li[data-n]::before{ content:attr(data-n); }
+  ol.check li::before{
+    position:absolute; left:0; top:.05rem;
+    font-family:var(--mono); font-size:.72rem; color:var(--copper);
+    border:1px solid var(--copper); border-radius:50%; width:1.5rem; height:1.5rem;
+    display:grid; place-items:center;
+  }
+  ol.check li b{display:block}
+
+  .flag{border-left:3px solid var(--warn); background:color-mix(in srgb,var(--warn) 7%,transparent);
+        padding:.7rem .9rem; border-radius:0 8px 8px 0; margin:.9rem 0 0; font-size:.9rem;}
+  .flag b{color:var(--warn)}
+  .tip{border-left:3px solid var(--good); background:color-mix(in srgb,var(--good) 7%,transparent);
+        padding:.7rem .9rem; border-radius:0 8px 8px 0; margin:.9rem 0 0; font-size:.9rem;}
+  .tip b{color:var(--good)}
+
+  footer{margin-top:1.6rem; color:var(--muted); font-size:.8rem; font-family:var(--mono);
+          text-align:center;}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Hardware · Montageanleitung &amp; Verkabelungsblatt</p>
+    <h1>Pixel Status im Akkubetrieb — Montage</h1>
+    <p class="lead">Alle Teile sind vollständig (Stückliste: <code>hardware/wiring/parts-list.md</code>),
+    das Gehäuse (body + cover) ist gedruckt und passt. Diese Seite führt durch die
+    komplette Montage: Gehäuse vorbereiten → löten → auf der Werkbank testen →
+    einbauen → Firmware konfigurieren. Die nummerierten Kreise (①–⑧) in der
+    Löt-Reihenfolge unten entsprechen den Schritten im Verkabelungsblatt.</p>
+    <div class="legend">
+      <span><i class="swatch sw-p"></i> Leistung (Akku / SYS / 3,3 V)</span>
+      <span><i class="swatch sw-s"></i> Signal — SPI</span>
+      <span><i class="swatch sw-g"></i> Masse &amp; Steuerung</span>
+      <span><i class="swatch sw-b"></i> Löt-/Montageschritt (Reihenfolge)</span>
+    </div>
+  </header>
+
+  <section>
+    <p class="eyebrow">Ablauf</p>
+    <h2>Montage in 5 Phasen</h2>
+    <p class="note">Jede Phase ist unten als eigener Abschnitt mit Details ausgeführt — diese
+    Übersicht dient als roter Faden.</p>
+    <div class="phases">
+      <div class="phase">
+        <p class="ph-tag">Phase A</p>
+        <h3>Gehäuse vorbereiten</h3>
+        <p>Druckgrat entfernen, Passprobe, Schalter final verschrauben.</p>
+      </div>
+      <div class="phase">
+        <p class="ph-tag">Phase B</p>
+        <h3>Löten (Werkbank)</h3>
+        <p>8 Schritte in fester Reihenfolge, siehe Diagramm.</p>
+      </div>
+      <div class="phase">
+        <p class="ph-tag">Phase C</p>
+        <h3>Bench-Test</h3>
+        <p>Vor dem Einbau offen testen — Fehler jetzt sind leicht zu beheben.</p>
+      </div>
+      <div class="phase">
+        <p class="ph-tag">Phase D</p>
+        <h3>Endmontage</h3>
+        <p>Module ins Gehäuse, Kabel wickeln, Deckel schließen.</p>
+      </div>
+      <div class="phase">
+        <p class="ph-tag">Phase E</p>
+        <h3>Firmware-Konfig</h3>
+        <p>WLAN einrichten, Akkumessung freischalten.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Phase A</p>
+    <h2>Gehäuse vorbereiten</h2>
+    <ol class="check">
+      <li><b>Druckgrat/Stützreste entfernen</b> An body, cover und feed_plug — besonders im
+      Matrix-Slot, der Ladetasche und der Kabel-Nut. Ein Cutter oder feines Schleifpapier reicht.</li>
+      <li><b>Trockene Passprobe</b> Matrix probeweise in den Slot schieben, Lademodul in die
+      Tasche legen, Deckel auflegen — noch nichts kleben oder verlöten. Bei Klemmen: Stelle mit
+      Schleifpapier nacharbeiten statt zu forcieren (PLA splittert sonst).</li>
+      <li><b>Master-Schalter final montieren</b> Flansch <b>innen</b> an die −X-Stirnwand, Schieber
+      ragt durch den Schlitz nach außen. Mit <b>2× M2 selbstschneidenden Schrauben</b> durch die
+      vorbereiteten ø2,2-Löcher (Raster 15 mm) fixieren.</li>
+    </ol>
+    <div class="tip"><b>Falls der Schalter laut Stückliste schon montiert ist:</b> Sitz und
+    Schraubenanzug trotzdem kurz prüfen, bevor die Verkabelung an ihm hängt.</div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Phase B · Kern</p>
+    <h2>Löt-Reihenfolge &amp; Leistungspfad</h2>
+    <p class="note">Alles in dieser Phase passiert <b>außerhalb</b> des Gehäuses, frei zugänglich auf
+    der Werkbank. Die Matrix hängt direkt an der Akkuschiene (No-Shift, ≤ ~4,5 V), damit die
+    3,3-V-SPI ohne Pegelwandler funktioniert. Die Kreiszahlen entsprechen der empfohlenen
+    Lötreihenfolge — von innen nach außen ist unkritisch, aber diese Reihenfolge lässt jeden
+    Schritt einzeln mit dem Multimeter prüfen, bevor der nächste dazukommt.</p>
+    <div class="diagram">
+      <svg viewBox="0 0 1360 640" role="img" aria-label="Verkabelungsdiagramm mit nummerierter Lötreihenfolge">
+        <defs>
+          <marker id="ap" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--copper)"/></marker>
+          <marker id="ag" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker>
+          <marker id="as" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--signal)"/></marker>
+        </defs>
+        <style>
+          .box{fill:var(--card); stroke:var(--line); stroke-width:1.6}
+          .box.hi{stroke:var(--copper); stroke-width:1.8}
+          .aux{fill:var(--paper); stroke:var(--line); stroke-width:1.3}
+          .lbl{fill:var(--ink); font:700 16px var(--mono);}
+          .lbl2{fill:var(--ink); font:700 14.5px var(--mono);}
+          .sub{fill:var(--muted); font:12.5px var(--mono);}
+          .subc{fill:var(--copper); font:700 12.5px var(--mono);}
+          .subs{fill:var(--signal); font:12.5px var(--mono);}
+          .wp{stroke:var(--copper); stroke-width:3; fill:none}
+          .wg{stroke:var(--muted); stroke-width:1.6; fill:none}
+          .ws{stroke:var(--signal); stroke-width:2.5; stroke-dasharray:7 5; fill:none}
+          .rail{stroke:var(--muted); stroke-width:1.6; stroke-dasharray:3 4; fill:none}
+          .node{fill:var(--copper)}
+          text{text-anchor:middle}
+          .badge circle{fill:var(--card); stroke:var(--copper); stroke-width:1.8}
+          .badge text{fill:var(--copper); font:700 13px var(--mono); text-anchor:middle;}
+        </style>
+
+        <!-- LiPo -->
+        <rect class="box hi" x="30" y="250" width="160" height="90" rx="10"/>
+        <text class="lbl" x="110" y="288">1S-LiPo</text>
+        <text class="sub" x="110" y="310">2000 mAh</text>
+        <path class="wp" d="M190,295 H246" marker-end="url(#ap)"/>
+
+        <!-- Charger -->
+        <rect class="box" x="248" y="210" width="210" height="170" rx="10"/>
+        <text class="lbl" x="360" y="248">Lader TP4057</text>
+        <text class="sub" x="360" y="270">+ Schutz-IC</text>
+        <text class="subc" x="360" y="292">OUT+ / BAT / IN</text>
+        <rect class="aux" x="278" y="402" width="164" height="42" rx="7"/>
+        <text class="sub" x="360" y="428">USB-C · Laden</text>
+        <path class="wp" d="M360,402 V382" marker-end="url(#ap)"/>
+        <g class="badge"><circle cx="264" cy="224" r="15"/><text x="264" y="229">4</text></g>
+
+        <path class="wp" d="M458,295 H514" marker-end="url(#ap)"/>
+        <text class="subc" x="486" y="286">OUT+</text>
+
+        <!-- Switch -->
+        <rect class="box hi" x="516" y="250" width="190" height="90" rx="10"/>
+        <text class="lbl" x="611" y="288">SS-12F15</text>
+        <text class="sub" x="611" y="310">Ein/Aus · 1 A DC</text>
+        <g class="badge"><circle cx="532" cy="264" r="15"/><text x="532" y="269">6</text></g>
+
+        <path class="wp" d="M706,295 H758"/>
+
+        <!-- Spine -->
+        <path class="wp" d="M760,105 V460"/>
+        <circle class="node" cx="760" cy="105" r="4"/>
+        <circle class="node" cx="760" cy="295" r="4"/>
+        <circle class="node" cx="760" cy="340" r="4"/>
+        <circle class="node" cx="760" cy="460" r="4"/>
+        <text class="lbl2" x="760" y="88">SYS</text>
+        <text class="sub" x="672" y="472" style="text-anchor:end">SYS 3,7–4,4 V</text>
+
+        <!-- to Matrix -->
+        <path class="wp" d="M760,105 H830" marker-end="url(#ap)"/>
+        <rect class="box hi" x="832" y="50" width="340" height="112" rx="10"/>
+        <text class="lbl" x="1002" y="90">LED-Matrix 32×8</text>
+        <text class="subc" x="1002" y="112">VCC = SYS · GND = Stern-Masse</text>
+        <text class="sub" x="1002" y="134">4× MAX7219, Hardware-SPI</text>
+        <g class="badge"><circle cx="848" cy="66" r="15"/><text x="848" y="71">5</text></g>
+
+        <!-- to LDO branch -->
+        <path class="wp" d="M760,340 H832" marker-end="url(#ap)"/>
+        <rect class="box" x="834" y="304" width="130" height="72" rx="9"/>
+        <text class="lbl2" x="899" y="334">LDO</text>
+        <text class="sub" x="899" y="354">Vo = 3,3 V</text>
+        <g class="badge"><circle cx="850" cy="318" r="15"/><text x="850" y="323">1</text></g>
+
+        <path class="wp" d="M964,340 H982"/>
+        <path class="wp" d="M982,332 L982,348 L1002,340 Z"/>
+        <path class="wp" d="M1002,326 V354"/>
+        <text class="subc" x="1000" y="300">1N5817</text>
+        <path class="wp" d="M1002,340 H1060" marker-end="url(#ap)"/>
+        <g class="badge"><circle cx="1000" cy="316" r="15"/><text x="1000" y="321">2</text></g>
+
+        <rect class="box hi" x="1062" y="298" width="150" height="84" rx="10"/>
+        <text class="lbl2" x="1137" y="330">ESP8266</text>
+        <text class="sub" x="1137" y="352">D1 mini · 3V3 / A0</text>
+
+        <rect class="aux" x="1226" y="298" width="112" height="42" rx="7"/>
+        <text class="sub" x="1282" y="317">USB · Flash</text>
+        <text class="sub" x="1282" y="333">/ Debug</text>
+        <path class="wg" d="M1226,319 H1212" marker-end="url(#ap)"/>
+
+        <!-- to A0 divider -->
+        <path class="wp" d="M760,460 H860" marker-end="url(#ap)"/>
+        <rect class="box" x="862" y="410" width="300" height="140" rx="10"/>
+        <text class="lbl2" x="1012" y="440">A0-Spannungsteiler</text>
+        <text class="sub" x="1012" y="463">R1 100 kΩ: SYS → A0</text>
+        <text class="sub" x="1012" y="484">R2 220 kΩ: A0 → GND</text>
+        <text class="sub" x="1012" y="505">100 nF: A0 → GND</text>
+        <text class="subc" x="1012" y="528">4,2 V → 2,89 V an A0</text>
+        <g class="badge"><circle cx="878" cy="426" r="15"/><text x="878" y="431">3</text></g>
+
+        <path class="wp" d="M1100,410 V382" marker-end="url(#ap)"/>
+        <text class="subc" x="1108" y="399" style="text-anchor:start">A0</text>
+
+        <!-- SPI -->
+        <path class="ws" d="M1212,298 V200 H1100 V162" marker-end="url(#as)"/>
+        <text class="subs" x="1140" y="190">SPI · D7 / D5 / D8</text>
+        <g class="badge"><circle cx="1212" cy="250" r="15"/><text x="1212" y="255">8</text></g>
+
+        <!-- Ground rail -->
+        <path class="rail" d="M70,590 H1260"/>
+        <text class="sub" x="96" y="595" style="text-anchor:start">Stern-Masse — alle GND an einem Punkt</text>
+        <g class="badge"><circle cx="70" cy="590" r="15"/><text x="70" y="595">7</text></g>
+
+        <path class="wg" d="M70,340 V590"/>
+        <path class="wg" d="M800,184 V590"/>
+        <path class="wg" d="M840,162 V184 H800"/>
+        <path class="wg" d="M850,376 H800"/>
+        <path class="wg" d="M1200,382 V590"/>
+        <path class="wg" d="M1000,550 V590"/>
+      </svg>
+    </div>
+    <div class="flag"><b>Master aus + USB am D1 mini:</b> Der ESP läuft dann aus USB (für Flashen/Debug),
+    die Matrix bleibt aus — die Schottky (①→②) verhindert, dass USB-Strom in die abgeschaltete
+    SYS-Schiene zurückfließt.</div>
+
+    <ol class="check" style="margin-top:1.2rem">
+      <li data-n="①"><b>LDO verdrahten</b> `Vi` an SYS (kommt später über den Schalter), `GND` an
+      Stern-Masse, `Vo` vorerst offen lassen (folgt in Schritt ②).</li>
+      <li data-n="②"><b>Schottky 1N5817 einlöten</b> Anode an LDO-`Vo`, Kathode an ESP-`3V3` — Polung
+      unbedingt prüfen, sonst kein Rückspeisungsschutz.</li>
+      <li data-n="③"><b>A0-Spannungsteiler aufbauen</b> R1 (100 kΩ) von SYS nach A0, R2 (220 kΩ) von A0
+      nach GND, 100 nF parallel zu R2 (A0–GND) zur Stabilisierung. Am besten frei verdrahtet als
+      kleines Bündel, dann mit Schrumpfschlauch isolieren.</li>
+      <li data-n="④"><b>Lader anschließen</b> LiPo-Balancerstecker an `BAT±` des TP4057, `OUT±` wird
+      zur SYS-Schiene (Schalter kommt in Schritt ⑥ dazwischen). USB-C-Ladeport bleibt frei zugänglich.</li>
+      <li data-n="⑤"><b>Matrix-Stützkondensatoren anlöten</b> 1000 µF Elko + 100 nF Keramik-C direkt an
+      Matrix-`VCC`/`GND`, dann `VCC` an SYS, `GND` an Stern-Masse.</li>
+      <li data-n="⑥"><b>Schalter einschleifen</b> In die `OUT+`-Leitung zwischen Lader und SYS-Schiene —
+      <b>COM + ein Außenpin</b> als einfacher Ein/Aus. Nicht zwischen Zelle und Lader schalten, sonst
+      funktioniert Laden/Schutz im Aus-Zustand nicht.</li>
+      <li data-n="⑦"><b>Stern-Masse zusammenführen</b> LiPo−/Lader-GND, Matrix-GND, LDO-GND und
+      ESP-GND an einem gemeinsamen Punkt verlöten (z. B. kurzer Massedraht als „Sammelschiene").</li>
+      <li data-n="⑧"><b>SPI verdrahten</b> D7→DIN, D5→CLK, D8→CS, kurze Drähte direkt zwischen D1 mini
+      und dem 5-poligen Matrix-Eingang.</li>
+    </ol>
+    <p class="note" style="margin-top:.9rem">Status-LEDs (Schritt „⑨", siehe unten) und die finale
+    Verkabelung ins Gehäuse folgen erst in Phase D — bis dahin bleibt alles frei zugänglich für
+    Multimeter-Checks.</p>
+  </section>
+
+  <section>
+    <p class="eyebrow">Signal</p>
+    <h2>ESP ↔ Matrix — Hardware-SPI (Schritt ⑧)</h2>
+    <p class="note">Ein 5-poliger Eingang der 4-in-1-Platine; die vier MAX7219 sind onboard durchgekettet.</p>
+    <div class="tw">
+      <table>
+        <thead><tr><th>Signal</th><th>D1-mini-Pin</th><th>GPIO</th><th>Hinweis</th></tr></thead>
+        <tbody>
+          <tr><td class="pin">DIN</td><td class="pin">D7</td><td class="gpio">GPIO13</td><td>HW-SPI MOSI — fest</td></tr>
+          <tr><td class="pin">CLK</td><td class="pin">D5</td><td class="gpio">GPIO14</td><td>HW-SPI SCK — fest</td></tr>
+          <tr><td class="pin">CS</td><td class="pin">D8</td><td class="gpio">GPIO15</td><td><code>CS_PIN</code> — frei wählbar</td></tr>
+          <tr><td class="pin">VCC</td><td class="pin">SYS</td><td class="gpio">—</td><td>an der Akkuschiene, <b>nicht</b> an 5 V</td></tr>
+          <tr><td class="pin">GND</td><td class="pin">⏚</td><td class="gpio">—</td><td>Stern-Masse · 1000 µF + 100 nF an VCC/GND</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="cols">
+    <section>
+      <p class="eyebrow">Anzeige</p>
+      <h2>Status-LEDs (Schritt ⑨)</h2>
+      <p class="note">Active-High (<code>LED_ACTIVE_LOW=false</code>): GPIO → Vorwiderstand → Anode, Kathode → GND.
+      In die LED-Bucht im Gehäuse gepresst (ø5,2 mm Fenster).</p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>LED</th><th>Pin</th><th>GPIO</th><th>R</th></tr></thead>
+          <tbody>
+            <tr><td class="pin">1 · rot</td><td class="pin">D2</td><td class="gpio">GPIO4</td><td class="gpio">220–330 Ω</td></tr>
+            <tr><td class="pin">2 · grün</td><td class="pin">D1</td><td class="gpio">GPIO5</td><td class="gpio">220–330 Ω</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note" style="margin-top:.9rem">Beide GPIOs sind boot-neutral. Countdown-Warnung lässt beide blinken.
+      Kabel lang genug lassen, damit die LEDs später von hinten in die Front-Löcher gedrückt werden können.</p>
+    </section>
+
+    <section>
+      <p class="eyebrow">Schalter</p>
+      <h2>Master-Schalter direkt (Schritt ⑥)</h2>
+      <p class="note">SS-12F15 laut Datenblatt <b>1,0 A / 24 V DC</b>. Reale Last: typ. ~0,15–0,3 A,
+      Worst Case (Vollweiß + max. Helligkeit) ~0,8–1 A — passt, <b>kein MOSFET nötig</b>.</p>
+      <ul class="parts">
+        <li>Schalter in die <b>OUT+-Leitung</b> (geschützter Ausgang) → schaltet das ganze Gerät</li>
+        <li><b>COM + ein Außenpin</b> nutzen (SPDT als einfacher Ein/Aus)</li>
+        <li>Laden über den Lader-USB läuft <b>auch im Aus-Zustand</b></li>
+        <li>Aus = nur noch ~µA Ruhestrom von Lader-/Schutz-IC</li>
+      </ul>
+    </section>
+  </div>
+
+  <section>
+    <p class="eyebrow">Absicherung</p>
+    <h2>Schutz gegen doppelten USB-Anschluss (Schritte ①–②)</h2>
+    <p class="note">Konflikt entsteht nur auf der 3,3-V-Schiene: Lader-USB (Akku) plus D1-mini-USB würden zwei
+    Regler gegeneinander treiben. Eine <b>Schottky</b> in der Einspeisung trennt sie.</p>
+    <ul class="parts">
+      <li><b>Schottky: 1N5817</b> (bedrahtet, DO-41, 1 A/20 V, Vf ≈ 0,45 V @1A): <b>Anode → LDO Vo</b>, <b>Kathode → ESP 3V3</b></li>
+      <li>Blockiert Rückfluss ESP→LDO — die Regler treiben sich nie gegenseitig</li>
+      <li>Drop ~0,25–0,3 V bei den hier üblichen ~100–300 mA → ESP bei ~3,0–3,05 V (läuft; Reserve im Blick behalten)</li>
+      <li>Bei WLAN-Instabilität: MOSFET-„Ideal-Diode" statt Schottky (kein Drop)</li>
+    </ul>
+  </section>
+
+  <section>
+    <p class="eyebrow">Messung</p>
+    <h2>A0-Spannungsteiler — Akku-%-Anzeige (Schritt ③)</h2>
+    <p class="note">Skaliert die SYS-Schiene (3,0–4,2 V) auf das D1-mini-A0-Limit (≤ 3,2 V) herunter,
+    Basis für die „LOW BATT"-Anzeige in <code>/api/health</code> — siehe Diagramm oben.</p>
+    <ul class="parts">
+      <li><b>R1 = 100 kΩ (1%)</b>: SYS/OUT+ → A0</li>
+      <li><b>R2 = 220 kΩ (1%)</b>: A0 → GND</li>
+      <li>Teilerfaktor 220/320 = <b>0,6875</b> → 4,2 V→2,89 V · 3,7 V→2,54 V · 3,0 V→2,06 V</li>
+      <li>100 nF zwischen A0 und GND — stabilisiert die Messung am hochohmigen Teiler (320 kΩ)</li>
+      <li>Ruhestrom: 4,2 V / 320 kΩ ≈ 13 µA — für die Laufzeit vernachlässigbar</li>
+    </ul>
+    <div class="flag"><b>Nach dem Verlöten nicht vergessen:</b> <code>BATTERY_MONITOR_ENABLED</code> in
+    <code>include/config.h</code> von <code>false</code> auf <code>true</code> setzen und neu flashen —
+    sonst bleibt die Akkuanzeige in <code>/api/health</code> deaktiviert (Standard, solange der Teiler
+    unverlötet war).</div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Phase C</p>
+    <h2>Bench-Test — vor dem Einbau, außerhalb des Gehäuses</h2>
+    <p class="note">Fehler jetzt zu finden ist einfach (alles liegt offen und ist mit dem Multimeter
+    erreichbar); im geschlossenen Gehäuse wird jede Korrektur mühsam. Diese Checkliste <b>vor dem
+    ersten Einschalten</b> abarbeiten:</p>
+    <ol class="check">
+      <li><b>LDO-Ausgang = 3,3 V ✓ gemessen/bestätigt</b> (17. August 2026) — kein Buck-Boost nötig.</li>
+      <li><b>Matrix-VCC an SYS</b> Niemals an einen 5-V-Pin des D1 mini.</li>
+      <li><b>Schottky-Polung (1N5817)</b> Anode am LDO, Kathode am ESP — sonst kein Schutz.</li>
+      <li><b>Schalter in OUT+</b> In die geschützte OUT+-Leitung — nicht zwischen Zelle und Modul (sonst kein Laden/Schutz im Aus-Zustand).</li>
+      <li><b>Stern-Masse</b> LiPo−, Matrix-GND, LDO-GND und ESP-GND auf einen gemeinsamen Punkt — mit dem Multimeter im Durchgangsmodus zwischen allen vier Punkten prüfen.</li>
+      <li><b>Stützkondensatoren</b> 1000 µF + 100 nF direkt an Matrix-VCC/GND, 100 nF an A0/GND.</li>
+      <li><b>Kein Kurzschluss</b> Vor dem ersten Akku-Anschluss: Widerstand zwischen SYS+ und GND messen (sollte hochohmig sein, nicht 0 Ω).</li>
+      <li><b>Erststart nur über USB</b> LiPo noch nicht anschließen. D1 mini per USB flashen/testen, Matrix soll das gewohnte Boot-Verhalten zeigen.</li>
+      <li><b>Dann Akku statt USB</b> USB trennen, LiPo anschließen, Schalter auf Ein — Matrix muss leuchten. Falls nicht: sofort trennen, nicht weitersuchen unter Spannung.</li>
+      <li><b>LEDs einzeln testen</b> Über die Web-UI oder <code>led 1 on</code> / <code>led 2 on</code> per USB-Seriell — beide Farben, beide Blinkmuster.</li>
+    </ol>
+  </section>
+
+  <section>
+    <p class="eyebrow">Phase D</p>
+    <h2>Endmontage ins Gehäuse</h2>
+    <ol class="check">
+      <li><b>Nochmals auf Kurzschluss/Wackelkontakt prüfen</b> Bevor irgendetwas fest im Gehäuse verschwindet.</li>
+      <li><b>Matrix von hinten in den Slot schieben</b> Bis zum Anschlag an der Lader-seitigen Wand;
+      sitzt im Sandwich zwischen Front und Deckel, kein Kleben nötig.</li>
+      <li><b>LEDs in die Front-Löcher drücken</b> Von hinten durch die LED-Bucht, Presssitz.</li>
+      <li><b>Lademodul in die Tasche legen</b> USB-C-Buchse sitzt in der Stirnwand-Öffnung; Platine
+      wird über die verlöteten Kabel gehalten (kein zusätzliches Kleben).</li>
+      <li><b>D1 mini + restliche Elektronik (LDO, Schottky, A0-Teiler) im Rückraum platzieren</b>
+      Lose Enden mit Schrumpfschlauch isolieren, damit nichts im Gehäuse Kontakt bekommt.</li>
+      <li><b>LiPo-Akku einlegen</b> Flach im Rückraum, Kabel zum Lader kurz genug für Zugentlastung.</li>
+      <li><b>Steuerkabel durch die Durchführung fädeln</b> Micro-USB-Stecker durch die große Öffnung,
+      Kabel in den Klemmschlitz drücken, restliche Länge in der umlaufenden Nut aufwickeln (2 Windungen
+      bei 70 cm Kabel).</li>
+      <li><b>Verschluss-Stopfen einsetzen</b> (<code>feed_plug</code>) verschließt die Durchführungsöffnung
+      im Presssitz.</li>
+      <li><b>Deckel aufsetzen</b> Reib-/Klipplippe, gleichmäßig andrücken.</li>
+      <li><b>Funktionstest im geschlossenen Gehäuse</b> Schalter Ein, Matrix + beide LEDs prüfen, Schalter
+      Aus, danach laden testen (USB-C am Lader, Gerät bleibt aus).</li>
+    </ol>
+  </section>
+
+  <section>
+    <p class="eyebrow">Phase E</p>
+    <h2>Firmware-Erstkonfiguration</h2>
+    <ol class="check">
+      <li><b>WLAN einrichten</b> Kein bekanntes Netz beim ersten Boot → Gerät öffnet den Setup-Hotspot;
+      unter <code>http://192.168.4.1/wifi</code> Zugangsdaten eintragen.</li>
+      <li><b>Erreichbarkeit prüfen</b> Danach über <code>http://pixelstatus.local</code> (Hostname im
+      System-Tab änderbar) oder die vergebene IP.</li>
+      <li><b>Akkuanzeige freischalten</b> <code>BATTERY_MONITOR_ENABLED true</code> in <code>include/config.h</code>,
+      neu flashen, auf <code>/health</code> Spannung/Prozent gegen ein Multimeter gegenchecken.</li>
+      <li><b>Optional: MQTT/Companion-App</b> Nach Bedarf über <code>/settings</code> bzw. die
+      Companion-App unter Windows/macOS einrichten.</li>
+    </ol>
+  </section>
+
+  <footer>Pins: include/config.h · Topologie: No-Shift 1S-LiPo</footer>
+</div>
+
+</body>
+</html>

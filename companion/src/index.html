@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pixel Status Companion</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <h1>Pixel Status</h1>
+
+  <section>
+    <h2>Status</h2>
+    <div class="grid">
+      <button data-action="preset" data-value="onair">On Air</button>
+      <button data-action="preset" data-value="call">In a Call</button>
+      <button data-action="preset" data-value="busy">Busy</button>
+      <button data-action="preset" data-value="brb">BRB</button>
+      <button data-action="clock" data-value="on" data-i18n="clock">Uhrzeit</button>
+      <button data-mode="text" data-i18n="customText">Eigener Text</button>
+      <button data-mode="timer">Timer</button>
+      <button data-action="clear" data-value="" class="muted" data-i18n="off">Aus</button>
+    </div>
+
+    <div id="textcfg" class="cfg hidden">
+      <input type="text" id="text" data-i18n-ph="textPh" placeholder="Text..." />
+      <label><input type="checkbox" id="scroll" /> <span data-i18n="scroll">Scrollen</span></label>
+      <button id="sendText" data-i18n="show">Anzeigen</button>
+    </div>
+
+    <div id="timercfg" class="cfg hidden">
+      <input type="number" id="minutes" value="5" min="0" /> Min
+      <div class="switch"><span data-i18n="countup">Hochzählen</span>
+        <label class="tgl"><input type="checkbox" id="timerDir" /><span class="sl"></span></label>
+      </div>
+      <div class="tctl">
+        <button id="timerPlay" class="ticon" data-i18n-title="play" title="Start">▶</button>
+        <button id="timerPause" class="ticon" data-i18n-title="pause" title="Pause">⏸</button>
+        <button id="timerStop" class="ticon muted" data-i18n-title="stop" title="Stopp">⏹</button>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span data-i18n="extraLeds">Zusatz-LEDs</span> <span id="ledWarnHint" class="hint"></span></h2>
+    <div class="ledrows">
+      <div class="ledrow">
+        <span class="ledname">LED 1</span>
+        <button data-led="1" data-s="off" class="muted led-s" data-i18n="off">Aus</button>
+        <button data-led="1" data-s="on" class="led-s" data-i18n="on">An</button>
+        <button data-led="1" data-s="blink" class="led-s">Blink</button>
+      </div>
+      <div class="ledrow">
+        <span class="ledname">LED 2</span>
+        <button data-led="2" data-s="off" class="muted led-s" data-i18n="off">Aus</button>
+        <button data-led="2" data-s="on" class="led-s" data-i18n="on">An</button>
+        <button data-led="2" data-s="blink" class="led-s">Blink</button>
+      </div>
+    </div>
+    <button id="btnAlt" class="muted wide-alt" data-i18n="altBlinkBtn">Wechselblinken</button>
+  </section>
+
+  <details id="devsettings">
+    <summary data-i18n="devSettings">Geräte-Einstellungen</summary>
+    <p class="hint"><span data-i18n="devHintPrefix">Werden über die gewählte Verbindung gesendet:</span> <span id="devhost">…</span></p>
+
+    <details class="dev">
+      <summary>System</summary>
+      <label class="f"><span data-i18n="dispName">Anzeigename</span><input type="text" id="sysName" maxlength="40" placeholder="Pixel Status" /></label>
+      <label class="f"><span data-i18n="hostname">Hostname</span><input type="text" id="sysHost" placeholder="pixelstatus" /></label>
+      <p class="hint" id="sysTime"></p>
+      <label><input type="checkbox" id="ntpEnabled" /> <span data-i18n="ntpSync">Zeit per NTP synchronisieren</span></label>
+      <label class="f" id="ntpSrvWrap"><span data-i18n="ntpServer">NTP-Server</span><input type="text" id="ntpServer" placeholder="pool.ntp.org" /></label>
+      <div id="manualWrap" class="hidden">
+        <label class="f"><span data-i18n="setManual">Uhrzeit manuell setzen</span><input type="datetime-local" id="mTime" /></label>
+        <button id="setTime" class="muted" data-i18n="applyTimePc">Zeit übernehmen (PC-Zeit)</button>
+      </div>
+      <div class="row"><button data-load="system" class="muted" data-i18n="load">Laden</button><button data-save="system" data-i18n="save">Speichern</button></div>
+      <span class="msg" id="sysMsg"></span>
+      <div id="sysBattWrap" class="hidden">
+        <p class="hint" id="battNow"></p>
+        <label class="f"><span data-i18n="realVolt">Echte Spannung (Multimeter an OUT+/OUT-)</span><input type="number" id="battVolts" step="0.01" min="2.5" max="4.3" data-i18n-ph="battVoltPh" placeholder="z.B. 4.08" /></label>
+        <button id="battCal" class="muted" data-i18n="calibrate">Kalibrieren</button>
+        <span class="msg" id="battMsg"></span>
+      </div>
+    </details>
+
+    <details class="dev">
+      <summary>LED</summary>
+      <label class="f"><span data-i18n="brightness">Helligkeit</span><input type="range" id="ledBright" min="0" max="15" /></label>
+      <label class="f"><span data-i18n="statusLedBright">Helligkeit Zusatz-LEDs</span><input type="range" id="statusLedBright" min="0" max="15" /></label>
+      <label class="f"><span data-i18n="orientLabel">Ausrichtung der Schrift</span>
+        <select id="ledOrient"><option value="0" data-i18n="orient0">Normal (0°)</option><option value="180" data-i18n="orient180">180° (auf dem Kopf)</option></select>
+      </label>
+      <label class="f"><span data-i18n="scrollDirLabel">Scrollrichtung</span>
+        <select id="ledScrollDir"><option value="left" data-i18n="scrollLeft">Links (Standard)</option><option value="right" data-i18n="scrollRight">Rechts</option></select>
+      </label>
+      <label class="f"><span data-i18n="bootAnimLabel">Animation beim Einschalten</span>
+        <select id="ledBootAnim">
+          <option value="0" data-i18n="bootOff">Aus</option>
+          <option value="1" data-i18n="bootScan">Scan-Wipe</option>
+          <option value="2" data-i18n="bootFill">Pixel-Fill</option>
+          <option value="3" data-i18n="bootProgress">Fortschrittsbalken (WiFi-Verbindung)</option>
+        </select>
+      </label>
+      <button id="ledBootAnimPreview" class="muted" data-i18n="bootPreviewBtn">Vorschau</button>
+      <label class="f"><span data-i18n="blinkSpeed">Blinkgeschwindigkeit (manuell, ms je Zyklus)</span><input type="number" id="ledBlinkPeriod" min="100" max="5000" step="50" /></label>
+      <label><input type="checkbox" id="ledAutoWarn" /> <span data-i18n="autoWarn">Countdown-Warnung (blinken)</span></label>
+      <label class="f"><span data-i18n="warnMin">Warnfenster (Min)</span><input type="number" id="ledWarn" min="1" /></label>
+      <label class="f"><span data-i18n="fastSecs">Schnell-Blink (Sek, 0=aus)</span><input type="number" id="ledFast" min="0" /></label>
+      <label><input type="checkbox" id="ledAlt" /> <span data-i18n="altBlink">Wechselblinken (abwechselnd)</span></label>
+      <label><input type="checkbox" id="ledActiveLow" /> <span data-i18n="activeLow">LEDs invertiert (Active-Low)</span></label>
+      <div class="colorrow"><label>LED 1<input type="color" id="ledC1" /></label>
+        <label>LED 2<input type="color" id="ledC2" /></label>
+        <label>Matrix<input type="color" id="ledCM" /></label></div>
+      <div class="row"><button data-load="led" class="muted" data-i18n="load">Laden</button></div>
+      <span class="msg" id="ledMsg"></span>
+    </details>
+
+    <details class="dev">
+      <summary>WiFi</summary>
+      <p class="hint" id="wifiStatus"></p>
+      <label class="f">SSID<input type="text" id="wifiSsid" /></label>
+      <label class="f"><span data-i18n="wifiPassLabel">Passwort</span><input type="password" id="wifiPass" data-i18n-ph="wifiPassPh" placeholder="(leer = offenes Netz)" /></label>
+      <div class="row"><button data-load="wifi" class="muted" data-i18n="statusBtn">Status</button><button data-save="wifi" data-i18n="saveRestart">Speichern &amp; Neustart</button></div>
+      <span class="msg" id="wifiMsg"></span>
+    </details>
+
+    <details class="dev">
+      <summary>MQTT</summary>
+      <p class="hint" id="mqttStatus"></p>
+      <label><input type="checkbox" id="mqttEnabled" /> <span data-i18n="mqttEnabledLabel">MQTT aktiviert</span></label>
+      <label class="f"><span data-i18n="host">Host</span><input type="text" id="mqttHost" placeholder="192.168.1.10" /></label>
+      <label class="f">Port<input type="number" id="mqttPort" value="1883" /></label>
+      <label class="f"><span data-i18n="mqttUser">Benutzer</span><input type="text" id="mqttUser" /></label>
+      <label class="f"><span data-i18n="wifiPassLabel">Passwort</span><input type="password" id="mqttPass" data-i18n-ph="mqttPassPh" placeholder="(leer = unverändert)" /></label>
+      <label class="f"><span data-i18n="mqttBase">Basis-Topic</span><input type="text" id="mqttBase" placeholder="pixelstatus" /></label>
+      <div class="row"><button data-load="mqtt" class="muted" data-i18n="load">Laden</button><button data-save="mqtt" data-i18n="saveRestart">Speichern &amp; Neustart</button></div>
+      <span class="msg" id="mqttMsg"></span>
+    </details>
+  </details>
+
+  <details id="settings">
+    <summary data-i18n="connection">Verbindung</summary>
+    <label class="f"><span data-i18n="langLabel">Sprache</span>
+      <select id="lang"><option value="de">Deutsch</option><option value="en">English</option></select>
+    </label>
+    <label><input type="radio" name="transport" value="http" /> <span data-i18n="wifiHttp">WiFi (HTTP)</span></label>
+    <input type="text" id="host" placeholder="pixelstatus.local" />
+    <label><input type="radio" name="transport" value="serial" /> <span data-i18n="usbCable">USB-Kabel</span></label>
+    <div class="row">
+      <select id="port"></select>
+      <button id="refreshPorts" class="muted">↻</button>
+    </div>
+    <p class="hint" data-i18n="driverHint">Für USB wird der CH340-Treiber des D1 mini benötigt.
+      Windows: <a href="https://www.wch-ic.com/downloads/CH341SER_EXE.html" target="_blank" rel="noopener">Treiber von WCH</a>.
+      macOS: meist schon vorinstalliert, sonst
+      <a href="https://github.com/WCHSoftGroup/ch34xser_macos" target="_blank" rel="noopener">WCH-macOS-Treiber</a>.</p>
+    <label><input type="checkbox" id="autoCall" /> <span data-i18n="autoCallLabel">Automatisch „In a Call" bei Mikrofonnutzung</span></label>
+    <button id="saveSettings" data-i18n="save">Speichern</button>
+  </details>
+
+  <script src="main.js"></script>
+</body>
+</html>
