@@ -316,6 +316,9 @@ Die Seite nutzt dieselbe API wie das Desktop-Panel — keine gesonderte
 Konfiguration nötig, einfach auf demselben WLAN mit dem Handy öffnen (URL vom
 Gerät wie oben, z. B. `http://pixelstatus.local/play`).
 
+<img width="1024" height="256" alt="Pixel_Attack" src="https://github.com/user-attachments/assets/0ec42699-357e-4fa4-9070-d9126c23fdee" />
+
+
 ---
 
 ## MQTT & Home-Assistant-Integration
