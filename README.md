@@ -173,9 +173,6 @@ openscad -o stl/feed_plug.stl -D 'part="feed_plug"' case.scad
 ./render.sh
 ```
 
-<img width="1400" height="698" alt="PixelStatus - Montiert" src="https://github.com/user-attachments/assets/10875da1-b00e-48e1-84e4-18a48382a304" />
-
-
 ---
 
 ## Aufbau & Verkabelung
@@ -279,6 +276,8 @@ Nach dem Flashen scrollt das Display die IP-Adresse. Bedienseite öffnen unter
 Boot kein bekanntes WLAN, öffnet das Gerät selbst einen Setup-Hotspot mit
 eigenem Passwort (wird auf der Matrix angezeigt) — WLAN-Zugangsdaten dann unter
 `http://192.168.4.1/wifi` eintragen.
+
+<img width="1400" height="698" alt="PixelStatus - Montiert" src="https://github.com/user-attachments/assets/10875da1-b00e-48e1-84e4-18a48382a304" />
 
 ---
 
