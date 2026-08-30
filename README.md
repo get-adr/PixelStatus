@@ -47,6 +47,9 @@ flashen will, kann direkt zu [Firmware einrichten](#firmware-einrichten) springe
   Helligkeit und Diagnose erscheinen automatisch in HA (siehe
   [eigenes Kapitel](#mqtt--home-assistant-integration))
 
+<img width="1254" height="1254" alt="PixelStatus Infografic" src="https://github.com/user-attachments/assets/ec19aad6-a61d-45f7-ad7d-fb5e0aeec14a" />
+
+
 ## Komponenten (Software)
 
 ### Firmware (dieses Repo, `src/`)
