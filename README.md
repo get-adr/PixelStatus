@@ -173,6 +173,9 @@ openscad -o stl/feed_plug.stl -D 'part="feed_plug"' case.scad
 ./render.sh
 ```
 
+<img width="1400" height="698" alt="PixelStatus - Montiert" src="https://github.com/user-attachments/assets/10875da1-b00e-48e1-84e4-18a48382a304" />
+
+
 ---
 
 ## Aufbau & Verkabelung
