@@ -28,8 +28,33 @@ pio device monitor            # serieller Monitor, 115200 Baud
 pio run -e d1_mini -t upload  # Variante Wemos D1 mini
 ```
 
+**Auf Apple Silicon baut das nicht direkt**: die Xtensa-Toolchain (lx106) gibt es
+für macOS ausschließlich als x86-Binary — weder der ESP8266-Arduino-Boardindex
+noch die PlatformIO-Registry führen einen arm64-Build, und `esp-quick-toolchain`
+hat seit Anfang 2023 kein Release mehr. Ohne Rosetta (ab macOS 27 nicht mehr
+verfügbar) scheitert `pio run` mit „Bad CPU type in executable". Für Linux gibt
+es die Toolchain als `aarch64`-Build, deshalb läuft der Build in einem
+arm64-Linux-Container nativ:
+
+```bash
+tools/build-docker.sh             # baut d1_mini (tools/Dockerfile.firmware)
+tools/build-docker.sh nodemcuv2   # andere Env
+tools/flash.sh [env] [port]       # flasht vom Mac aus, Default d1_mini/115200
+```
+
+Arbeitsteilung bewusst so: **bauen im Container, flashen auf dem Mac** — USB-
+Geräte lassen sich auf macOS nicht in die Linux-VM durchreichen, der Upload
+braucht aber keinen Compiler (`esptool` ist Python, `brew install esptool`).
+`pio device monitor` läuft aus demselben Grund weiter nativ. Die x86-Pakete
+unter `~/.platformio/packages` wurden entfernt, da auf diesem Rechner ohnehin
+unbrauchbar; PlatformIO lädt sie bei Bedarf neu (und scheitert dann wieder am
+Compiler — der Container ist der Weg). Im Container liegen Framework und
+Toolchain in einem benannten Volume, nur der erste Lauf lädt sie.
+
 Es gibt kein Test-Setup; verifiziert wird auf der Hardware bzw. über den seriellen
-Monitor. PlatformIO muss ggf. erst installiert werden (`brew install platformio`).
+Monitor. Ein reiner Compile-Check ist aber der schnellste Weg, Firmware-Änderungen
+abzusichern (`tools/build-docker.sh`, ~25 s für einen vollen Build), und sollte
+vor jedem Commit an `src/` laufen.
 
 ### Companion-App (Tauri v2, `companion/`)
 

@@ -271,6 +271,32 @@ pio device monitor               # serielle Ausgabe (115200 Baud)
 
 Für den Wemos D1 mini: `pio run -e d1_mini -t upload`.
 
+### Apple Silicon: Bauen im Container
+
+Die Xtensa-Toolchain für den ESP8266 gibt es für macOS **nur als x86-Binary** —
+weder der ESP8266-Arduino-Boardindex noch die PlatformIO-Registry bieten einen
+arm64-Build an, und das Projekt dahinter (`esp-quick-toolchain`) hat seit Anfang
+2023 kein Release mehr. Auf Apple Silicon lief das bisher über Rosetta; ohne
+Rosetta scheitert `pio run` mit „Bad CPU type in executable". Für Linux gibt es
+die Toolchain dagegen als `aarch64`-Build — in einem arm64-Linux-Container läuft
+sie nativ, ohne Emulation:
+
+```bash
+brew install --cask orbstack      # oder Docker Desktop / colima
+brew install esptool              # nativer Flasher für macOS
+
+tools/build-docker.sh             # baut d1_mini im Container
+tools/build-docker.sh nodemcuv2   # andere Env
+tools/flash.sh                    # flasht die gebaute .bin vom Mac aus
+pio device monitor                # Logs weiterhin nativ (reines Python)
+```
+
+Gebaut wird im Container, **geflasht vom Mac** — USB-Geräte lassen sich auf
+macOS nicht in die Linux-VM durchreichen, der Upload braucht aber auch keinen
+Compiler. Die fertige `.bin` landet über das gemountete Projektverzeichnis
+direkt im Arbeitsverzeichnis. Framework und Toolchain liegen in einem benannten
+Docker-Volume, nur der erste Lauf lädt sie herunter.
+
 Zum Flashen reicht das USB-Kabel am D1 mini; für den eigentlichen Betrieb
 danach Akku anschließen und den Hauptschalter einschalten (siehe
 [Aufbau & Verkabelung](#aufbau--verkabelung)) — die Matrix bleibt sonst dunkel.
