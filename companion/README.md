@@ -33,6 +33,25 @@ npm run tauri dev      # App im Entwicklungsmodus starten
 npm run tauri build    # Installer bauen: macOS .dmg / Windows .exe (nsis)
 ```
 
+### Abhängigkeiten und Dependabot
+
+Die App wird ausschließlich für **Windows und macOS** gebaut (siehe Workflow
+unten). Tauri zieht seine Linux-Abhängigkeiten (`gtk`, `glib`, `webkit2gtk`,
+`libappindicator` …) trotzdem in `Cargo.lock`, sie werden aber nur für
+Linux-Ziele überhaupt kompiliert:
+
+```bash
+cargo tree -e normal -i glib --target x86_64-unknown-linux-gnu   # Treffer: gtk 0.18 -> tao/muda/tray-icon
+cargo tree -e normal -i glib --target aarch64-apple-darwin       # "nothing to print"
+```
+
+Eine Dependabot-Meldung zu einem dieser Crates betrifft daher keinen
+ausgelieferten Build. Sie lässt sich zudem nicht durch ein Update auflösen:
+Tauri 2.x hängt über `tao`/`muda`/`tray-icon` fest an `gtk` 0.18 (gtk3-rs), das
+seinerseits `glib` 0.18 vorgibt — ein Sprung auf `glib` 0.20 setzt ein
+Upstream-Update von Tauri voraus. Vor dem Schließen einer solchen Meldung beide
+`cargo tree`-Aufrufe oben wiederholen, statt die Einschätzung fortzuschreiben.
+
 ## Installation vorgefertigter Builds (GitHub Actions)
 
 Der Workflow `.github/workflows/companion-build.yml` baut bei jedem Push nach
