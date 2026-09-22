@@ -28,8 +28,33 @@ pio device monitor            # serieller Monitor, 115200 Baud
 pio run -e d1_mini -t upload  # Variante Wemos D1 mini
 ```
 
+**Auf Apple Silicon baut das nicht direkt**: die Xtensa-Toolchain (lx106) gibt es
+für macOS ausschließlich als x86-Binary — weder der ESP8266-Arduino-Boardindex
+noch die PlatformIO-Registry führen einen arm64-Build, und `esp-quick-toolchain`
+hat seit Anfang 2023 kein Release mehr. Ohne Rosetta (ab macOS 27 nicht mehr
+verfügbar) scheitert `pio run` mit „Bad CPU type in executable". Für Linux gibt
+es die Toolchain als `aarch64`-Build, deshalb läuft der Build in einem
+arm64-Linux-Container nativ:
+
+```bash
+tools/build-docker.sh             # baut d1_mini (tools/Dockerfile.firmware)
+tools/build-docker.sh nodemcuv2   # andere Env
+tools/flash.sh [env] [port]       # flasht vom Mac aus, Default d1_mini/115200
+```
+
+Arbeitsteilung bewusst so: **bauen im Container, flashen auf dem Mac** — USB-
+Geräte lassen sich auf macOS nicht in die Linux-VM durchreichen, der Upload
+braucht aber keinen Compiler (`esptool` ist Python, `brew install esptool`).
+`pio device monitor` läuft aus demselben Grund weiter nativ. Die x86-Pakete
+unter `~/.platformio/packages` wurden entfernt, da auf diesem Rechner ohnehin
+unbrauchbar; PlatformIO lädt sie bei Bedarf neu (und scheitert dann wieder am
+Compiler — der Container ist der Weg). Im Container liegen Framework und
+Toolchain in einem benannten Volume, nur der erste Lauf lädt sie.
+
 Es gibt kein Test-Setup; verifiziert wird auf der Hardware bzw. über den seriellen
-Monitor. PlatformIO muss ggf. erst installiert werden (`brew install platformio`).
+Monitor. Ein reiner Compile-Check ist aber der schnellste Weg, Firmware-Änderungen
+abzusichern (`tools/build-docker.sh`, ~25 s für einen vollen Build), und sollte
+vor jedem Commit an `src/` laufen.
 
 ### Companion-App (Tauri v2, `companion/`)
 
@@ -482,11 +507,11 @@ Eine Verantwortlichkeit pro Klasse:
   LED / WiFi / MQTT; IDs/Funktionen pro Tab getrennt benannt, Tabs laden lazy beim
   ersten Öffnen; System ist der Default-Tab). Der **System-Tab** konfiguriert den
   Hostnamen (`/system/save` → `NetManager::saveHostname`, Neustart nur bei Änderung),
-  den Anzeigenamen (sofort) und die **Uhrzeit**: NTP an/aus + Server (→
-  `TimeManager::saveConfig`, sofort) sowie manuelles Stellen (`settime`, deaktiviert
+  den Anzeigenamen (sofort) und die **Uhrzeit**: NTP an/aus + Server + **Zeitzone**
+  (→ `TimeManager::saveConfig`, sofort) sowie manuelles Stellen (`settime`, deaktiviert
   dabei NTP). `/system/status` (`buildSystemJson`) liefert alles inkl. aktueller
-  Gerätezeit + `synced`-Flag. `applySystemConfig` verarbeitet `ntpEnabled`/`ntpServer`/
-  `settime` — greift also auch über `cfgsys` (USB/Companion).
+  Gerätezeit, `tz` + `synced`-Flag. `applySystemConfig` verarbeitet `ntpEnabled`/
+  `ntpServer`/`tz`/`settime` — greift also auch über `cfgsys` (USB/Companion).
   Die Startseite hat dafür nur einen „Einstellungen"-Button. Die alten
   Pfade `/leds`, `/wifi`, `/mqtt` liefern dieselbe Seite und öffnen per Pfad den
   passenden Tab (wichtig für den AP-Setup-Flow `http://192.168.4.1/wifi`). Die
@@ -566,7 +591,15 @@ Eine Verantwortlichkeit pro Klasse:
   der Matrix an (`handleApSetupDisplay()`, alle 6 s, Vertrauensmodell wie ein
   aufgedruckter Router-WLAN-Schlüssel), bis sich ein Gerät verbindet
   (`WiFi.softAPgetStationNum() > 0`) — dann `display.clear()` statt die zuletzt
-  gezeigte SSID/das Passwort stehen zu lassen. Hat dabei **Vorrang vor der
+  gezeigte SSID/das Passwort stehen zu lassen. **Ebenso beendet wird sie beim
+  ersten über USB eingehenden Befehl** (`SerialBridge::commandSeen()`, bleibt bis
+  zum Neustart gesetzt; auch reine `get*`-Abfragen zählen, da ein pollender Client
+  ebenso belegt, dass jemand am Kabel hängt): wird das Gerät per Kabel gesteuert,
+  braucht niemand die Hotspot-Zugangsdaten, während der 6-Sekunden-Wechsel sonst
+  endlos jeden per USB gesetzten Inhalt überschrieb. Gelöscht wird dabei **nur**,
+  wenn wirklich noch SSID/Passwort zu sehen ist (`DisplayManager::showsScrollText()`)
+  — ein Steuerbefehl hat die Anzeige schon selbst übernommen und soll sie behalten,
+  ein reiner Abfragebefehl nicht. Hat dabei **Vorrang vor der
   Akku-Warnung** (`handleBatteryWarning()` in `main.cpp` kehrt um, solange
   `net.apActive() && !s_apSetupDone`): sonst würde „LOW BATT" die Anzeige
   überschreiben bzw. deren Dimmung (`setBrightnessOverride()`) das Passwort
@@ -577,11 +610,29 @@ Eine Verantwortlichkeit pro Klasse:
   für `WiFi.hostname()`/mDNS; `/wifi/status` liefert die aktuelle Verbindung
   (SSID/IP/Hostname) für die Setup-Seite. Der Hotspot ist reiner Fallback (nur
   aktiv, wenn kein WiFi).
-- **`TimeManager`** (`TimeManager.h/.cpp`) — kapselt die Uhrzeit-Sync. NTP an/aus +
-  Server liegen in LittleFS (`/ntp.txt`, 2 Zeilen), `config.h` liefert nur Defaults
-  (`NTP_SERVER`). Die Zeitzone (`NTP_TZ`) bleibt compile-time und wird in `begin()`
-  **immer** gesetzt (`setenv`/`tzset`), damit auch manuell gestellte Zeit lokal
-  korrekt angezeigt wird. `loop()` erkennt den WiFi-(Re)Connect (Flanke) und stößt
+- **`TimeManager`** (`TimeManager.h/.cpp`) — kapselt die Uhrzeit-Sync. NTP an/aus,
+  Server **und Zeitzone** liegen in LittleFS (`/ntp.txt`, 3 Zeilen), `config.h`
+  liefert nur Defaults (`NTP_SERVER`/`NTP_TZ`). Die Zeitzone wird in `begin()` und
+  bei jedem `saveConfig()` **immer** gesetzt (`applyTz()` → `setenv`/`tzset`), also
+  auch bei abgeschaltetem NTP, damit manuell gestellte Zeit lokal korrekt angezeigt
+  wird. **Zur Laufzeit umstellbar** (System-Tab, Feld `tz` in `getsys`/`cfgsys`,
+  Route `/system/save?tz=`): sie war urspruenglich compile-time, wodurch das Gerät
+  unabhängig vom Standort deutsche Zeit zeigte — auffällig beim Stellen der Uhr aus
+  einem Browser in einer anderen Zone, denn über alle drei Wege (Web/MQTT/USB)
+  wandert immer nur ein **UTC-Zeitstempel**, die Zone entscheidet allein auf dem
+  Gerät. Format ist der POSIX-TZ-String (`CET-1CEST,M3.5.0,M10.5.0/3`), den newlibs
+  `tzset()` direkt versteht — eine IANA-Zonendatenbank gibt es auf dem ESP8266
+  nicht. Die Auswahl im Web-UI (und in der Companion-App) ist deshalb eine
+  **JS-Tabelle `TZDB`**, die je Eintrag die IANA-Namen derselben Regel, den
+  POSIX-String und eine (bewusst unübersetzte, wie die Matrix-Presets)
+  Beschriftung hält; „Zeitzone des Browsers übernehmen" sucht darin den von
+  `Intl.DateTimeFormat().resolvedOptions().timeZone` gemeldeten Namen und meldet
+  eine unbekannte Zone, statt still falsch zuzuordnen — für alles Übrige gibt es
+  ein Freitextfeld. Die Tabelle steckt in beiden Projekten getrennt (kein
+  Codesharing zwischen Firmware und Companion-App, wie beim Wörterbuch `T`).
+  `applySystemConfig()` füllt die drei Felder einzeln per `has()` mit dem
+  bisherigen Wert auf — ein Aufruf mit nur `tz=…` darf NTP nicht nebenbei
+  abschalten (vorher wurde `ntpEnabled` dort bedingungslos ausgewertet). `loop()` erkennt den WiFi-(Re)Connect (Flanke) und stößt
   NTP dann neu an (`configTime`); ist NTP aus, stoppt `apply()` den SNTP-Client
   (`sntp_stop()` aus `<sntp.h>` — dieselbe Instanz, die `configTime` nutzt), sodass
   eine per `setManual()` gesetzte Zeit stehen bleibt. Zur Laufzeit über den

@@ -1,0 +1,34 @@
+# Dependabot-Konfiguration.
+#
+# Zweck dieser Datei ist derzeit allein die ignore-Regel unten: Dependabot
+# beachtet ignore-Bedingungen auch bei Sicherheitsupdates, aber nur, wenn es
+# fuer das jeweilige Oekosystem ueberhaupt einen Block gibt.
+#
+# open-pull-requests-limit: 0 schaltet die regulaeren Versionsupdates ab --
+# die Rust-Abhaengigkeiten werden bewusst von Hand und mit einem Build dazu
+# aktualisiert, aus demselben Grund, aus dem platformio.ini seine lib_deps
+# exakt pinnt. Sicherheitsupdates bleiben davon unberuehrt.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /companion/src-tauri
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    ignore:
+      # glib kommt ausschliesslich ueber Tauris Linux-Kette herein
+      # (tao/muda/tray-icon -> gtk 0.18 -> glib 0.18) und wird nur fuer
+      # Linux-Ziele kompiliert; gebaut und ausgeliefert wird die App nur fuer
+      # Windows und macOS (siehe companion/README.md, Abschnitt
+      # "Abhaengigkeiten und Dependabot", inkl. der cargo-tree-Belege).
+      #
+      # Ein Update ist zudem nicht aufloesbar: der Fix fuer
+      # GHSA-wrw7-89jp-8q8g steckt erst in glib 0.20, einen gepatchten
+      # 0.18er-Zweig gibt es nicht, und saemtliche aktuellen Crates der
+      # Tauri-Kette (tao 0.37, muda 0.20, wry 0.57, libappindicator 0.9)
+      # fordern weiterhin gtk ^0.18. Dependabot scheitert daran bei jedem
+      # Versuch aufs Neue -- die Regel hier stoppt genau diese Fehllaeufe.
+      #
+      # Beim naechsten groesseren Tauri-Release neu bewerten: sobald die
+      # Kette auf gtk 0.19 (glib >= 0.22) geht, diesen Eintrag entfernen.
+      - dependency-name: glib

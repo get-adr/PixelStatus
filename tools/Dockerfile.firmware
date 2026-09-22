@@ -1,0 +1,26 @@
+# Bau-Umgebung fuer die ESP8266-Firmware.
+#
+# Warum ueberhaupt ein Container: die Xtensa-Toolchain (lx106) gibt es fuer
+# macOS ausschliesslich als x86-Binary -- weder der ESP8266-Arduino-Boardindex
+# noch die PlatformIO-Registry bieten einen arm64-Build an, und das Projekt
+# dahinter (esp-quick-toolchain) hat seit Anfang 2023 kein Release mehr. Auf
+# Apple Silicon lief das bisher ueber Rosetta; faellt das weg, gibt es auf dem
+# Mac selbst keinen Weg mehr zu bauen. Fuer Linux gibt es die Toolchain aber
+# als aarch64-Build -- in einem arm64-Linux-Container laeuft sie also nativ,
+# ohne Emulation und unabhaengig davon, was Apple mit Rosetta macht.
+#
+# PlatformIO-Version exakt gepinnt, aus demselben Grund wie die lib_deps in
+# platformio.ini (siehe SEC-10 dort): ein Upstream-Release soll den Build nicht
+# unbemerkt veraendern.
+FROM python:3.13-slim
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir platformio==6.2.0
+
+# Paketverzeichnis liegt auf einem benannten Volume (siehe build-docker.sh),
+# damit Framework und Toolchain nicht bei jedem Lauf neu geladen werden.
+ENV PLATFORMIO_CORE_DIR=/pio
+WORKDIR /project

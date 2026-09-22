@@ -128,6 +128,10 @@ const T={
   hostname:'Hostname (erreichbar als &lt;name&gt;.local)',
   nameHint:'Der Anzeigename wird sofort übernommen. Eine Änderung des Hostnamens erfordert einen Neustart.',
   time:'Uhrzeit', deviceTime:'Gerätezeit: ', hostnamePrefix:'Hostname: ',
+  timezone:'Zeitzone', tzCustom:'Eigener TZ-String (POSIX)',
+  tzCustomOpt:'Eigener TZ-String ...', tzFromBrowser:'Zeitzone des Browsers übernehmen',
+  tzHint:'Gilt für NTP und für manuell gestellte Zeit: übertragen wird immer nur ein UTC-Zeitstempel, die Zone bestimmt, was die Matrix daraus macht.',
+  tzUnknown:'Zeitzone nicht in der Liste, bitte TZ-String selbst eintragen: ',
   ntpSync:'Zeit per NTP synchronisieren', ntpServer:'NTP-Server',
   setManual:'Uhrzeit manuell setzen', applyTime:'Zeit übernehmen',
   noNtpHint:'Ohne NTP (und ohne RTC) geht die Zeit bei jedem Neustart verloren.',
@@ -195,6 +199,10 @@ const T={
   hostname:'Hostname (reachable as &lt;name&gt;.local)',
   nameHint:'The display name is applied immediately. Changing the hostname requires a restart.',
   time:'Time', deviceTime:'Device time: ', hostnamePrefix:'Hostname: ',
+  timezone:'Time zone', tzCustom:'Custom TZ string (POSIX)',
+  tzCustomOpt:'Custom TZ string ...', tzFromBrowser:'Use the browser time zone',
+  tzHint:'Applies to NTP and to manually set time: only a UTC timestamp is ever transferred, the zone decides what the matrix makes of it.',
+  tzUnknown:'Time zone not in the list, please enter the TZ string yourself: ',
   ntpSync:'Sync time via NTP', ntpServer:'NTP server',
   setManual:'Set time manually', applyTime:'Apply time',
   noNtpHint:'Without NTP (and without an RTC) the time is lost on every restart.',
@@ -591,6 +599,11 @@ static const char SETTINGS_PAGE[] PROGMEM = R"HTML(<!DOCTYPE html>
  <p class="hv" data-i18n="nameHint">Der Anzeigename wird sofort übernommen. Eine Änderung des Hostnamens erfordert einen Neustart.</p>
  <h2 data-i18n="time">Uhrzeit</h2>
  <p class="hv" id="timenow"></p>
+ <label class="f"><span data-i18n="timezone">Zeitzone</span><select id="tzsel" onchange="tzPick()"></select></label>
+ <label class="f hidden" id="tzcustwrap"><span data-i18n="tzCustom">Eigener TZ-String (POSIX)</span>
+  <input type="text" id="tzcust" placeholder="CET-1CEST,M3.5.0,M10.5.0/3" onchange="tzApply()"></label>
+ <button onclick="tzFromBrowser()" data-i18n="tzFromBrowser">Zeitzone des Browsers übernehmen</button>
+ <p class="hv" data-i18n="tzHint">Gilt für NTP und für manuell gestellte Zeit: übertragen wird immer nur ein UTC-Zeitstempel, die Zone bestimmt, was die Matrix daraus macht.</p>
  <div class="switch"><span data-i18n="ntpSync">Zeit per NTP synchronisieren</span>
   <label class="tgl"><input type="checkbox" id="ntpen" onchange="ntpToggle()"><span class="sl"></span></label></div>
  <label class="f" id="ntpsrvwrap"><span data-i18n="ntpServer">NTP-Server</span><input type="text" id="ntpsrv" placeholder="pool.ntp.org"></label>
@@ -720,6 +733,74 @@ function localNowStr(){
  const d=new Date();
  return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16);
 }
+// Auswaehlbare Zeitzonen als POSIX-TZ-Strings -- eine IANA-Zonendatenbank gibt
+// es auf dem ESP8266 nicht, newlibs tzset() versteht nur dieses Format. Je
+// Eintrag: [IANA-Namen, die derselben Regel folgen, TZ-String, Beschriftung].
+// Die IANA-Liste dient allein tzFromBrowser(), das den vom Browser gemeldeten
+// Zonennamen darin sucht; sie ist bewusst nicht vollstaendig, fuer alles andere
+// gibt es das Freitextfeld. Die Beschriftungen bleiben bewusst unuebersetzt
+// (international gebraeuchliche Ortsnamen + UTC-Versatz), statt die Tabelle je
+// Sprache zu verdoppeln -- wie die Matrix-Presets, die ebenfalls Englisch sind.
+const TZDB=[
+ [['UTC','Etc/UTC','Etc/GMT'],'UTC0','UTC (UTC+0)'],
+ [['Europe/London','Europe/Dublin','Europe/Lisbon'],'GMT0BST,M3.5.0/1,M10.5.0','London, Dublin, Lisbon (UTC+0/+1)'],
+ [['Europe/Berlin','Europe/Paris','Europe/Madrid','Europe/Rome','Europe/Amsterdam','Europe/Brussels','Europe/Vienna','Europe/Zurich','Europe/Prague','Europe/Warsaw','Europe/Stockholm','Europe/Oslo','Europe/Copenhagen','Europe/Budapest'],'CET-1CEST,M3.5.0,M10.5.0/3','Berlin, Paris, Madrid, Rome (UTC+1/+2)'],
+ [['Europe/Athens','Europe/Helsinki','Europe/Kyiv','Europe/Kiev','Europe/Bucharest','Europe/Sofia','Europe/Riga','Europe/Vilnius','Europe/Tallinn'],'EET-2EEST,M3.5.0/3,M10.5.0/4','Athens, Helsinki, Kyiv (UTC+2/+3)'],
+ [['Europe/Moscow','Europe/Istanbul'],'<+03>-3','Moscow, Istanbul (UTC+3)'],
+ [['Asia/Dubai'],'<+04>-4','Dubai (UTC+4)'],
+ [['Asia/Kolkata','Asia/Calcutta'],'<+0530>-5:30','Delhi, Mumbai (UTC+5:30)'],
+ [['Asia/Bangkok','Asia/Jakarta','Asia/Ho_Chi_Minh'],'<+07>-7','Bangkok, Jakarta (UTC+7)'],
+ [['Asia/Shanghai','Asia/Singapore','Asia/Hong_Kong','Asia/Taipei'],'CST-8','Beijing, Singapore, Hong Kong (UTC+8)'],
+ [['Asia/Tokyo','Asia/Seoul'],'JST-9','Tokyo, Seoul (UTC+9)'],
+ [['Australia/Sydney','Australia/Melbourne','Australia/Canberra','Australia/Hobart'],'AEST-10AEDT,M10.1.0,M4.1.0/3','Sydney, Melbourne (UTC+10/+11)'],
+ [['Pacific/Auckland'],'NZST-12NZDT,M9.5.0,M4.1.0/3','Auckland (UTC+12/+13)'],
+ [['America/Sao_Paulo','America/Argentina/Buenos_Aires','America/Montevideo'],'<-03>3','São Paulo, Buenos Aires (UTC-3)'],
+ [['America/New_York','America/Toronto','America/Detroit','America/Montreal'],'EST5EDT,M3.2.0,M11.1.0','New York, Toronto (UTC-5/-4)'],
+ [['America/Chicago','America/Winnipeg'],'CST6CDT,M3.2.0,M11.1.0','Chicago, Winnipeg (UTC-6/-5)'],
+ [['America/Denver','America/Edmonton'],'MST7MDT,M3.2.0,M11.1.0','Denver, Edmonton (UTC-7/-6)'],
+ [['America/Phoenix'],'MST7','Phoenix (UTC-7, no DST)'],
+ [['America/Los_Angeles','America/Vancouver','America/Tijuana'],'PST8PDT,M3.2.0,M11.1.0','Los Angeles, Vancouver (UTC-8/-7)']
+];
+// Fuellt die Auswahl und zeigt das Freitextfeld nur, wenn die gespeicherte Zone
+// in keinem Listeneintrag vorkommt (z.B. von Hand gesetzt oder per USB).
+function tzFill(cur){
+ const sel=document.getElementById('tzsel'); sel.innerHTML=''; let hit=false;
+ TZDB.forEach(function(z){
+  const o=document.createElement('option'); o.value=z[1]; o.textContent=z[2];
+  if(z[1]===cur){ o.selected=true; hit=true; }
+  sel.appendChild(o);
+ });
+ const o=document.createElement('option'); o.value=''; o.setAttribute('data-i18n','tzCustomOpt');
+ o.textContent=tr('tzCustomOpt'); if(!hit) o.selected=true; sel.appendChild(o);
+ document.getElementById('tzcust').value=cur;
+ document.getElementById('tzcustwrap').classList.toggle('hidden', hit);
+}
+// Listeneintrag -> sofort uebernehmen; "eigener TZ-String" blendet nur das
+// Freitextfeld ein und wartet auf dessen onchange (sonst wuerde jedes Oeffnen
+// der Auswahl schon eine leere Zone senden).
+function tzPick(){
+ const v=document.getElementById('tzsel').value;
+ document.getElementById('tzcustwrap').classList.toggle('hidden', v!=='');
+ if(v){ document.getElementById('tzcust').value=v; tzApply(); }
+}
+async function tzApply(){
+ const tz=(document.getElementById('tzsel').value||document.getElementById('tzcust').value).trim();
+ if(!tz) return;
+ try{
+  await fetch('/system/save?tz='+encodeURIComponent(tz));
+  document.getElementById('sysmsg').textContent=tr('savedApplied');
+  setTimeout(sysLoad,300);   // Geraetezeit in der neuen Zone anzeigen
+ }catch(e){ document.getElementById('sysmsg').textContent=tr('saveFailed'); }
+}
+// Browser meldet einen IANA-Namen (z.B. "Europe/London"); den in TZDB suchen
+// und den passenden POSIX-String setzen. Unbekannte Zone -> Hinweis statt
+// stiller Fehlzuordnung, der Nutzer kann den TZ-String dann selbst eintragen.
+function tzFromBrowser(){
+ let name=''; try{ name=Intl.DateTimeFormat().resolvedOptions().timeZone||''; }catch(e){}
+ const hit=TZDB.filter(function(z){ return z[0].indexOf(name)>=0; })[0];
+ if(!hit){ document.getElementById('sysmsg').textContent=tr('tzUnknown')+(name||'?'); return; }
+ document.getElementById('tzsel').value=hit[1]; tzPick();
+}
 // Blendet NTP-Server bzw. manuelle Zeit passend zum Schalter ein/aus.
 function ntpToggle(){
  const on=document.getElementById('ntpen').checked;
@@ -733,6 +814,7 @@ async function sysLoad(){
   dname.value=c.name; dhost.value=c.hostname;
   document.getElementById('ntpen').checked=c.ntpEnabled;
   document.getElementById('ntpsrv').value=c.ntpServer;
+  tzFill(c.tz||'');
   document.getElementById('mtime').value=localNowStr();   // Browserzeit vorbefuellen
   document.getElementById('timenow').textContent=tr('deviceTime')+c.time.replace('T',' ')
     +(c.synced?' ('+tr('synced')+')':' ('+tr('notSynced')+')');
@@ -1351,6 +1433,7 @@ String WebPortal::buildSystemJson() {
          "\",\"name\":\"" + jsonEscape(_name) + "\"" +
          ",\"ntpEnabled\":" + (_time.enabled() ? "true" : "false") +
          ",\"ntpServer\":\"" + jsonEscape(_time.server()) + "\"" +
+         ",\"tz\":\"" + jsonEscape(_time.tz()) + "\"" +
          ",\"time\":\"" + String(ts) + "\"" +
          ",\"synced\":" + (TimeManager::synced() ? "true" : "false") +
          ",\"bootAnim\":" + String(_display.bootAnimation()) + "}";
@@ -1391,9 +1474,14 @@ void WebPortal::applyLedConfig(const Arg& get) {
 }
 bool WebPortal::applySystemConfig(const Arg& get, const Has& has) {
   if (has("name")) saveDisplayName(get("name"));
-  // NTP: An/Aus + Server (sofort wirksam, kein Neustart). Leerer Server -> alter bleibt.
-  if (has("ntpEnabled") || has("ntpServer"))
-    _time.saveConfig(get("ntpEnabled") == "1", get("ntpServer"));
+  // NTP: An/Aus + Server + Zeitzone (sofort wirksam, kein Neustart). Jedes Feld
+  // einzeln per has() geprueft und sonst mit dem bisherigen Wert aufgefuellt --
+  // ein Aufruf mit nur "tz=..." (Zeitzonen-Auswahl, siehe tzApply() im
+  // System-Tab) darf NTP nicht nebenbei abschalten, weil "ntpEnabled" fehlt.
+  if (has("ntpEnabled") || has("ntpServer") || has("tz"))
+    _time.saveConfig(has("ntpEnabled") ? get("ntpEnabled") == "1" : _time.enabled(),
+                     has("ntpServer") ? get("ntpServer") : _time.server(),
+                     has("tz") ? get("tz") : _time.tz());
   // Uhrzeit manuell setzen (Epoch-Sekunden UTC); nach der NTP-Konfig, damit ein
   // gerade deaktiviertes NTP die Zeit nicht ueberschreibt.
   if (has("settime")) {
