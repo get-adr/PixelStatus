@@ -16,7 +16,7 @@
 //   preset onair            text Hallo Welt      timer 300      clock on
 //   led 1 blink             led both off         settime 1719600000
 //   getled                  getmqtt              getwifi        getsys   getappear
-//   cfgled autoWarn=1&warnSecs=300&...           cfgsys name=Studio&host=studio
+//   cfgled autoWarn=1&warnSecs=300&...           cfgsys name=Studio&tz=UTC0
 //   cfgwifi ssid=Netz&pass=geheim                cfgmqtt enabled=1&host=...
 class SerialBridge {
 public:
@@ -24,10 +24,20 @@ public:
   void begin();
   void loop();
 
+  // true, sobald ueber USB mindestens ein Befehl eingegangen ist -- das Geraet
+  // wird also gerade per Kabel gesteuert (Companion-App oder Terminal), auch
+  // wenn es gar kein WLAN hat. main.cpp beendet daraufhin die Anzeige der
+  // Setup-Hotspot-Zugangsdaten, die sonst jeden per USB gesetzten Inhalt
+  // ueberschreiben wuerde (siehe handleApSetupDisplay()). Bleibt bis zum
+  // Neustart gesetzt; auch reine Abfragen (get*) zaehlen, da ein pollender
+  // Client ebenso belegt, dass jemand am Kabel haengt.
+  bool commandSeen() const { return _commandSeen; }
+
 private:
   void process(const String& line);
   DisplayManager& _display;
   LedController&  _leds;
   WebPortal&      _web;
   String          _line;
+  bool            _commandSeen = false;
 };

@@ -41,7 +41,10 @@ static void pumpDisplay() {
 // AP-Name und -Passwort, damit man das (geraetespezifisch generierte, siehe
 // SEC-05) Passwort ablesen kann, ohne die Weboberflaeche zu brauchen. Endet,
 // sobald sich ein Geraet mit dem Hotspot verbindet -- ab dann ist vermutlich
-// schon jemand am Smartphone/Laptop im Einrichtungsdialog.
+// schon jemand am Smartphone/Laptop im Einrichtungsdialog -- ODER sobald ein
+// Befehl ueber USB eingeht: dann steuert jemand das Geraet per Kabel und
+// braucht die Hotspot-Zugangsdaten gar nicht, waehrend die Anzeige alle paar
+// Sekunden jeden per USB gesetzten Inhalt ueberschreiben wuerde.
 static bool          s_apSetupDone    = false;
 static bool          s_apTimerStarted = false;
 static bool          s_apShowingPass  = false;
@@ -55,6 +58,20 @@ static void handleApSetupDisplay() {
     // Wartezeit doch schon einmal gedimmt hatte.
     s_apSetupDone = true;
     display.clear();
+    display.clearBrightnessOverride();
+    return;
+  }
+  if (serialCtl.commandSeen()) {
+    s_apSetupDone = true;
+    // Nur loeschen, wenn tatsaechlich noch SSID/Passwort auf der Matrix steht:
+    // ein Steuerbefehl (text/preset/clock/timer) hat die Anzeige schon selbst
+    // uebernommen und soll sie behalten, ein reiner Abfragebefehl (get*/cfg*)
+    // hat sie unberuehrt gelassen und wuerde die Zugangsdaten stehen lassen.
+    if (display.showsScrollText(net.apSsid()) || display.showsScrollText(net.apPassword()))
+      display.clear();
+    // Wie im Zweig oben nur zur Sicherheit -- handleBatteryWarning() haelt sich
+    // waehrend des AP-Setups zurueck und bewertet den Akkustand ab jetzt wieder
+    // regulaer (dimmt also ggf. im naechsten loop() erneut).
     display.clearBrightnessOverride();
     return;
   }

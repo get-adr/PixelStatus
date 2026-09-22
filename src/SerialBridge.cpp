@@ -22,6 +22,7 @@ void SerialBridge::loop() {
 }
 
 void SerialBridge::process(const String& line) {
+  _commandSeen = true;   // Geraet wird per USB gesteuert (siehe commandSeen())
   // Erstes Wort = Aktion, Rest = Wert (darf Leerzeichen enthalten, z. B. Text).
   int sp = line.indexOf(' ');
   String action = sp < 0 ? line : line.substring(0, sp);

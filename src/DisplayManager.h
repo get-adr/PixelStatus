@@ -34,6 +34,10 @@ public:
   void stopTimer();
   void startClock();                       // zeigt HH:MM aus der Systemzeit (NTP/USB)
   void clear();
+  // true, wenn genau dieser Text gerade als Scrolltext laeuft. main.cpp prueft
+  // damit, ob die Matrix noch die AP-Setup-Infos zeigt, bevor es sie loescht --
+  // ein zwischenzeitlich (z.B. per USB) gesetzter Inhalt bleibt so stehen.
+  bool showsScrollText(const String& text) const { return _mode == TEXT_SCROLL && _text == text; }
   void setBrightness(uint8_t level);       // 0..15, persistiert in LittleFS
   // Temporaere Helligkeit, OHNE die gespeicherte Einstellung zu ueberschreiben
   // (z.B. Akku-Warnung dimmt runter, ohne den Nutzerwert zu verlieren).
