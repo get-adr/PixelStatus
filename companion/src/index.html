@@ -69,6 +69,10 @@
       <label class="f"><span data-i18n="dispName">Anzeigename</span><input type="text" id="sysName" maxlength="40" placeholder="Pixel Status" /></label>
       <label class="f"><span data-i18n="hostname">Hostname</span><input type="text" id="sysHost" placeholder="pixelstatus" /></label>
       <p class="hint" id="sysTime"></p>
+      <label class="f"><span data-i18n="timezone">Zeitzone</span><select id="sysTz"></select></label>
+      <label class="f hidden" id="sysTzCustWrap"><span data-i18n="tzCustom">Eigener TZ-String (POSIX)</span><input type="text" id="sysTzCust" placeholder="CET-1CEST,M3.5.0,M10.5.0/3" /></label>
+      <button id="tzFromPc" class="muted" data-i18n="tzFromPc">Zeitzone dieses PCs übernehmen</button>
+      <p class="hint" data-i18n="tzHint">Gilt für NTP und für manuell gestellte Zeit: übertragen wird immer nur ein UTC-Zeitstempel, die Zone bestimmt, was die Matrix daraus macht.</p>
       <label><input type="checkbox" id="ntpEnabled" /> <span data-i18n="ntpSync">Zeit per NTP synchronisieren</span></label>
       <label class="f" id="ntpSrvWrap"><span data-i18n="ntpServer">NTP-Server</span><input type="text" id="ntpServer" placeholder="pool.ntp.org" /></label>
       <div id="manualWrap" class="hidden">

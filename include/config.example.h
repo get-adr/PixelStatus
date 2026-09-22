@@ -49,7 +49,8 @@
 // ===== Uhrzeit (NTP, nur mit WiFi) =====
 // NTP_SERVER ist nur der Default: Server + An/Aus sind zur Laufzeit ueber
 // /settings (System-Tab) einstellbar und liegen in LittleFS (/ntp.txt).
-// Die Zeitzone (NTP_TZ) bleibt compile-time.
+// NTP_TZ ist ebenfalls nur der Default: die Zeitzone laesst sich seit dem
+// System-Tab zur Laufzeit umstellen (POSIX-TZ-String, persistiert in LittleFS).
 #define NTP_SERVER  "pool.ntp.org"
 #define NTP_TZ      "CET-1CEST,M3.5.0,M10.5.0/3"   // TZ-String, hier Europa/Berlin
 

@@ -27,6 +27,11 @@ const T = {
     devSettings: "Geräte-Einstellungen", devHintPrefix: "Werden über die gewählte Verbindung gesendet:",
     dispName: "Anzeigename", hostname: "Hostname", ntpSync: "Zeit per NTP synchronisieren",
     ntpServer: "NTP-Server", setManual: "Uhrzeit manuell setzen", applyTimePc: "Zeit übernehmen (PC-Zeit)",
+    timezone: "Zeitzone", tzCustom: "Eigener TZ-String (POSIX)", tzCustomOpt: "Eigener TZ-String ...",
+    tzFromPc: "Zeitzone dieses PCs übernehmen",
+    tzHint: "Gilt für NTP und für manuell gestellte Zeit: übertragen wird immer nur ein UTC-Zeitstempel, die Zone bestimmt, was die Matrix daraus macht.",
+    tzUnknown: "Zeitzone nicht in der Liste, bitte TZ-String selbst eintragen: ",
+    tzPickedSave: "Zeitzone übernommen – mit „Speichern\u201c an das Gerät senden.",
     load: "Laden", save: "Speichern",
     currentlyShown: "Aktuell angezeigt: ",
     realVolt: "Echte Spannung (Multimeter an OUT+/OUT-)", battVoltPh: "z.B. 4.08", calibrate: "Kalibrieren",
@@ -66,6 +71,11 @@ const T = {
     devSettings: "Device Settings", devHintPrefix: "Sent over the selected connection:",
     dispName: "Display name", hostname: "Hostname", ntpSync: "Sync time via NTP",
     ntpServer: "NTP server", setManual: "Set time manually", applyTimePc: "Apply time (PC clock)",
+    timezone: "Time zone", tzCustom: "Custom TZ string (POSIX)", tzCustomOpt: "Custom TZ string ...",
+    tzFromPc: "Use this PC's time zone",
+    tzHint: "Applies to NTP and to manually set time: only a UTC timestamp is ever transferred, the zone decides what the matrix makes of it.",
+    tzUnknown: "Time zone not in the list, please enter the TZ string yourself: ",
+    tzPickedSave: "Time zone selected – send it to the device with \u201cSave\u201d.",
     load: "Load", save: "Save",
     currentlyShown: "Currently shown: ",
     realVolt: "Actual voltage (multimeter at OUT+/OUT-)", battVoltPh: "e.g. 4.08", calibrate: "Calibrate",
@@ -308,6 +318,69 @@ function localNowStr() {
   const d = new Date();
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 }
+// Auswaehlbare Zeitzonen als POSIX-TZ-Strings (der ESP8266 hat keine
+// IANA-Zonendatenbank, newlibs tzset() versteht nur dieses Format). Je Eintrag:
+// [IANA-Namen derselben Regel, TZ-String, Beschriftung]. Die IANA-Liste dient
+// allein tzFromPc(); sie ist bewusst nicht vollstaendig, fuer alles andere gibt
+// es das Freitextfeld. Beschriftungen bleiben unuebersetzt (international
+// gebraeuchliche Ortsnamen + UTC-Versatz), wie die Preset-Namen. Dieselbe
+// Tabelle steckt in der Firmware-Weboberflaeche -- bewusst dupliziert, die
+// beiden Projekte teilen sich keinen Code (siehe CLAUDE.md).
+const TZDB = [
+  [["UTC", "Etc/UTC", "Etc/GMT"], "UTC0", "UTC (UTC+0)"],
+  [["Europe/London", "Europe/Dublin", "Europe/Lisbon"], "GMT0BST,M3.5.0/1,M10.5.0", "London, Dublin, Lisbon (UTC+0/+1)"],
+  [["Europe/Berlin", "Europe/Paris", "Europe/Madrid", "Europe/Rome", "Europe/Amsterdam", "Europe/Brussels", "Europe/Vienna", "Europe/Zurich", "Europe/Prague", "Europe/Warsaw", "Europe/Stockholm", "Europe/Oslo", "Europe/Copenhagen", "Europe/Budapest"], "CET-1CEST,M3.5.0,M10.5.0/3", "Berlin, Paris, Madrid, Rome (UTC+1/+2)"],
+  [["Europe/Athens", "Europe/Helsinki", "Europe/Kyiv", "Europe/Kiev", "Europe/Bucharest", "Europe/Sofia", "Europe/Riga", "Europe/Vilnius", "Europe/Tallinn"], "EET-2EEST,M3.5.0/3,M10.5.0/4", "Athens, Helsinki, Kyiv (UTC+2/+3)"],
+  [["Europe/Moscow", "Europe/Istanbul"], "<+03>-3", "Moscow, Istanbul (UTC+3)"],
+  [["Asia/Dubai"], "<+04>-4", "Dubai (UTC+4)"],
+  [["Asia/Kolkata", "Asia/Calcutta"], "<+0530>-5:30", "Delhi, Mumbai (UTC+5:30)"],
+  [["Asia/Bangkok", "Asia/Jakarta", "Asia/Ho_Chi_Minh"], "<+07>-7", "Bangkok, Jakarta (UTC+7)"],
+  [["Asia/Shanghai", "Asia/Singapore", "Asia/Hong_Kong", "Asia/Taipei"], "CST-8", "Beijing, Singapore, Hong Kong (UTC+8)"],
+  [["Asia/Tokyo", "Asia/Seoul"], "JST-9", "Tokyo, Seoul (UTC+9)"],
+  [["Australia/Sydney", "Australia/Melbourne", "Australia/Canberra", "Australia/Hobart"], "AEST-10AEDT,M10.1.0,M4.1.0/3", "Sydney, Melbourne (UTC+10/+11)"],
+  [["Pacific/Auckland"], "NZST-12NZDT,M9.5.0,M4.1.0/3", "Auckland (UTC+12/+13)"],
+  [["America/Sao_Paulo", "America/Argentina/Buenos_Aires", "America/Montevideo"], "<-03>3", "S\u00e3o Paulo, Buenos Aires (UTC-3)"],
+  [["America/New_York", "America/Toronto", "America/Detroit", "America/Montreal"], "EST5EDT,M3.2.0,M11.1.0", "New York, Toronto (UTC-5/-4)"],
+  [["America/Chicago", "America/Winnipeg"], "CST6CDT,M3.2.0,M11.1.0", "Chicago, Winnipeg (UTC-6/-5)"],
+  [["America/Denver", "America/Edmonton"], "MST7MDT,M3.2.0,M11.1.0", "Denver, Edmonton (UTC-7/-6)"],
+  [["America/Phoenix"], "MST7", "Phoenix (UTC-7, no DST)"],
+  [["America/Los_Angeles", "America/Vancouver", "America/Tijuana"], "PST8PDT,M3.2.0,M11.1.0", "Los Angeles, Vancouver (UTC-8/-7)"],
+];
+// Fuellt die Auswahl; das Freitextfeld erscheint nur, wenn die Zone des Geraets
+// in keinem Listeneintrag vorkommt (von Hand gesetzt oder per Terminal).
+function tzFill(cur) {
+  const sel = $("sysTz"); sel.innerHTML = ""; let hit = false;
+  for (const z of TZDB) {
+    const o = document.createElement("option");
+    o.value = z[1]; o.textContent = z[2];
+    if (z[1] === cur) { o.selected = true; hit = true; }
+    sel.appendChild(o);
+  }
+  const o = document.createElement("option");
+  o.value = ""; o.setAttribute("data-i18n", "tzCustomOpt"); o.textContent = tr("tzCustomOpt");
+  if (!hit) o.selected = true; sel.appendChild(o);
+  $("sysTzCust").value = cur || "";
+  $("sysTzCustWrap").classList.toggle("hidden", hit);
+}
+// Der beim Speichern gesendete TZ-String: Listeneintrag oder Freitextfeld.
+function tzValue() { return ($("sysTz").value || $("sysTzCust").value).trim(); }
+$("sysTz").addEventListener("change", () => {
+  const v = $("sysTz").value;
+  $("sysTzCustWrap").classList.toggle("hidden", v !== "");
+  if (v) $("sysTzCust").value = v;
+});
+// Betriebssystem meldet einen IANA-Namen (z.B. "Europe/London"); den in TZDB
+// suchen. Unbekannte Zone -> Hinweis statt stiller Fehlzuordnung, der TZ-String
+// laesst sich dann von Hand eintragen.
+$("tzFromPc").addEventListener("click", () => {
+  let name = "";
+  try { name = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch (e) { /* nichts zu tun */ }
+  const hit = TZDB.find((z) => z[0].includes(name));
+  if (!hit) { setMsg("sysMsg", tr("tzUnknown") + (name || "?")); return; }
+  $("sysTz").value = hit[1]; $("sysTzCust").value = hit[1];
+  $("sysTzCustWrap").classList.add("hidden");
+  setMsg("sysMsg", tr("tzPickedSave"));
+});
 // Blendet NTP-Server bzw. manuelle Zeit passend zum Schalter ein/aus.
 function ntpToggle() {
   const on = $("ntpEnabled").checked;
@@ -322,6 +395,7 @@ async function loadSystem() {
     const c = JSON.parse(await cfg("getsys", ""));
     $("sysName").value = c.name; $("sysHost").value = c.hostname;
     $("ntpEnabled").checked = c.ntpEnabled; $("ntpServer").value = c.ntpServer;
+    tzFill(c.tz || "");
     $("mTime").value = localNowStr();   // Browserzeit (PC-Zeit) vorbefuellen
     $("sysTime").textContent = tr("deviceTime") + (c.time || "").replace("T", " ")
       + (c.synced ? " (" + tr("synced") + ")" : " (" + tr("notSynced") + ")");
@@ -352,7 +426,8 @@ $("battCal").addEventListener("click", async () => {
 async function saveSystem() {
   const en = $("ntpEnabled").checked;
   const q = `name=${enc($("sysName").value)}&host=${enc($("sysHost").value)}`
-    + `&ntpEnabled=${en ? 1 : 0}&ntpServer=${enc($("ntpServer").value)}`;
+    + `&ntpEnabled=${en ? 1 : 0}&ntpServer=${enc($("ntpServer").value)}`
+    + (tzValue() ? `&tz=${enc(tzValue())}` : "");
   try {
     const r = JSON.parse(await cfg("cfgsys", q));
     setMsg("sysMsg", r.restart ? tr("savedRestartHost") : tr("saved"));

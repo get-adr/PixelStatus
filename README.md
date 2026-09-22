@@ -456,8 +456,10 @@ unsignierten Downloads, Projektaufbau) siehe
 | Leeren   | `/api/clear` |
 | Status   | `/api/state` (JSON) |
 
-Uhrzeit zeigen: `/api/cmd?action=clock&value=on` (Zeit kommt per NTP, siehe
-`NTP_TZ`/`NTP_SERVER` in `config.h`).
+Uhrzeit zeigen: `/api/cmd?action=clock&value=on`. Zeitquelle (NTP an/aus,
+Server) **und Zeitzone** stehen im System-Tab der Einstellungen; `NTP_TZ`/
+`NTP_SERVER` in `config.h` sind nur die Startwerte. Übertragen wird immer ein
+UTC-Zeitstempel – die eingestellte Zone bestimmt, was die Matrix daraus macht.
 
 ### USB (seriell, 115200 Baud)
 
