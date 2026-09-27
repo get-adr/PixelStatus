@@ -26,7 +26,14 @@ struct AppState {
     // Menue-Rebuild noetig), analog zum Haekchen-Update der status_items.
     settings_item: MenuItem<tauri::Wry>,
     quit_item: MenuItem<tauri::Wry>,
+    // Letzte vom Auto-Status-Watcher abgefragte Teams-Praesenz (Client-ID +
+    // Ergebnis). Das Fenster zeigt diese an, statt Graph selbst ein zweites
+    // Mal abzufragen.
+    teams_last: Mutex<Option<TeamsPresenceCache>>,
 }
+
+// (Client-ID, Ergebnis der Praesenzabfrage: Ok((availability, activity)) | Err(text))
+type TeamsPresenceCache = (String, Result<(String, String), String>);
 
 #[tauri::command]
 fn get_settings(state: State<AppState>) -> Settings {
@@ -83,6 +90,7 @@ async fn send_command(
 fn tray_label(id: &str, lang: &str) -> Option<&'static str> {
     let en = lang == "en";
     match id {
+        "free" => Some(if en { "Free" } else { "Frei" }),
         "clock" => Some(if en { "Clock" } else { "Uhrzeit" }),
         "text" => Some(if en { "Custom Text" } else { "Eigener Text" }),
         "clear" => Some(if en { "Off" } else { "Aus" }),
@@ -165,7 +173,10 @@ fn teams_logout(client_id: String, state: State<AppState>, app: AppHandle) -> Re
 // Listener an und liefert die Anmelde-URL (den oeffnet das Frontend); Complete
 // wartet auf den Callback, tauscht den Code ein und persistiert die Einstellungen.
 #[tauri::command]
-fn teams_browser_start(client_id: String, tenant: String) -> Result<teams::BrowserLoginStart, String> {
+fn teams_browser_start(
+    client_id: String,
+    tenant: String,
+) -> Result<teams::BrowserLoginStart, String> {
     teams::browser_start_login(&client_id, &tenant)
 }
 
@@ -184,6 +195,67 @@ async fn teams_browser_complete(
     Ok(account)
 }
 
+// Login-Status + aktuelle Teams-Praesenz fuer die Anzeige im Fenster (rein
+// lesend). `display` ist der daraus abgeleitete Matrix-Status (z. B.
+// "onair"/"call"), falls einer zuzuordnen ist. `cached` nutzt die zuletzt vom
+// Auto-Status-Watcher abgefragte Praesenz (keine zusaetzliche Graph-Abfrage);
+// liegt noch keine vor, wird live abgefragt.
+#[derive(serde::Serialize)]
+struct TeamsStatusView {
+    logged_in: bool,
+    account: String,
+    availability: String,
+    activity: String,
+    display: String,
+    error: Option<String>,
+}
+
+#[tauri::command]
+async fn teams_status(
+    client_id: String,
+    tenant: String,
+    cached: Option<bool>,
+    state: State<'_, AppState>,
+) -> Result<TeamsStatusView, String> {
+    let last = if cached.unwrap_or(false) {
+        state
+            .teams_last
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|(id, _)| *id == client_id)
+            .map(|(_, r)| r.clone())
+    } else {
+        None
+    };
+    let p = match last {
+        Some(result) => teams::status_with(&client_id, result),
+        None => teams::status(&client_id, &tenant).await,
+    };
+    let display = if p.availability.is_empty() {
+        String::new()
+    } else {
+        map_teams_status(&p.availability, &p.activity)
+            .unwrap_or("")
+            .to_string()
+    };
+    // Name aus dem Token (Keyring) bevorzugen -- der ist der Login-Status direkt
+    // zugeordnet; aeltere Eintraege ohne Name fallen auf die App-Einstellung zurueck.
+    let account = if p.account.is_empty() {
+        state.settings.lock().unwrap().teams_account.clone()
+    } else {
+        p.account
+    };
+    Ok(TeamsStatusView {
+        logged_in: p.logged_in,
+        account,
+        availability: p.availability,
+        activity: p.activity,
+        display,
+        error: p.error,
+    })
+}
+
 // Tray-Menupunkt -> (action, value) fuer das Display.
 fn menu_command(id: &str) -> Option<(&'static str, &'static str)> {
     match id {
@@ -191,6 +263,8 @@ fn menu_command(id: &str) -> Option<(&'static str, &'static str)> {
         "call" => Some(("preset", "call")),
         "busy" => Some(("preset", "busy")),
         "brb" => Some(("preset", "brb")),
+        "free" => Some(("preset", "free")),
+        "dnd" => Some(("preset", "dnd")),
         "clock" => Some(("clock", "on")),
         "clear" => Some(("clear", "")),
         _ => None,
@@ -208,6 +282,8 @@ fn active_status_id(json: &str) -> Option<String> {
         "IN A CALL" => "call",
         "BUSY" => "busy",
         "BRB" => "brb",
+        "FREE" => "free",
+        "DND" => "dnd",
         // Jeder andere Text (z. B. die IP nach dem Neustart) ist "Eigener Text".
         _ if mode.contains("text") => "text",
         _ => match mode {
@@ -338,6 +414,7 @@ fn spawn_auto_status_watcher(app: AppHandle) {
             if source == "off" {
                 last_in_use = false; // bei Deaktivierung Flanke zuruecksetzen
                 last_teams.clear();
+                *state.teams_last.lock().unwrap() = None;
                 continue;
             }
 
@@ -346,6 +423,8 @@ fn spawn_auto_status_watcher(app: AppHandle) {
                     &settings.teams_client_id,
                     &settings.teams_tenant,
                 ));
+                *state.teams_last.lock().unwrap() =
+                    Some((settings.teams_client_id.clone(), presence.clone()));
                 let key = presence
                     .as_ref()
                     .map(|(a, b)| format!("{a}:{b}"))
@@ -386,9 +465,10 @@ fn map_teams_status(availability: &str, activity: &str) -> Option<&'static str> 
         return Some("call");
     }
     match availability {
-        "DoNotDisturb" | "Busy" => Some("busy"),
+        "Busy" => Some("busy"),
+        "DoNotDisturb" => Some("dnd"),
         "BeRightBack" => Some("brb"),
-        "Available" => Some("onair"),
+        "Available" => Some("free"),
         _ => None,
     }
 }
@@ -435,6 +515,8 @@ pub fn run() {
             let call = CheckMenuItem::with_id(app, "call", "In a Call", true, false, None::<&str>)?;
             let busy = CheckMenuItem::with_id(app, "busy", "Busy", true, false, None::<&str>)?;
             let brb = CheckMenuItem::with_id(app, "brb", "BRB", true, false, None::<&str>)?;
+            let free = CheckMenuItem::with_id(app, "free", "Frei", true, false, None::<&str>)?;
+            let dnd = CheckMenuItem::with_id(app, "dnd", "DND", true, false, None::<&str>)?;
             let clock = CheckMenuItem::with_id(app, "clock", "Uhrzeit", true, false, None::<&str>)?;
             let text =
                 CheckMenuItem::with_id(app, "text", "Eigener Text", true, false, None::<&str>)?;
@@ -444,6 +526,8 @@ pub fn run() {
                 ("call", call.clone()),
                 ("busy", busy.clone()),
                 ("brb", brb.clone()),
+                ("free", free.clone()),
+                ("dnd", dnd.clone()),
                 ("clock", clock.clone()),
                 ("text", text.clone()),
                 ("clear", clear.clone()),
@@ -466,6 +550,7 @@ pub fn run() {
                 status_items,
                 settings_item: settings_item.clone(),
                 quit_item: quit_item.clone(),
+                teams_last: Mutex::new(None),
             });
             apply_tray_language(handle, &initial_lang); // gespeicherte Sprache sofort anwenden
 
@@ -482,6 +567,8 @@ pub fn run() {
                     &call,
                     &busy,
                     &brb,
+                    &free,
+                    &dnd,
                     &clock,
                     &text,
                     &clear,
@@ -517,7 +604,8 @@ pub fn run() {
             teams_complete_login,
             teams_logout,
             teams_browser_start,
-            teams_browser_complete
+            teams_browser_complete,
+            teams_status
         ])
         .run(tauri::generate_context!())
         .expect("Fehler beim Start der Tauri-App");

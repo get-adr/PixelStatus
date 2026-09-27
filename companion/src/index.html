@@ -11,11 +11,14 @@
 
   <section>
     <h2>Status</h2>
+    <p class="teamsline hidden" id="teamsLine"><span class="tdot" id="teamsDot"></span><span id="teamsLineText"></span></p>
     <div class="grid">
       <button data-action="preset" data-value="onair">On Air</button>
       <button data-action="preset" data-value="call">In a Call</button>
       <button data-action="preset" data-value="busy">Busy</button>
       <button data-action="preset" data-value="brb">BRB</button>
+      <button data-action="preset" data-value="free" data-i18n="free">Frei</button>
+      <button data-action="preset" data-value="dnd">DND</button>
       <button data-action="clock" data-value="on" data-i18n="clock">Uhrzeit</button>
       <button data-mode="text" data-i18n="customText">Eigener Text</button>
       <button data-mode="timer">Timer</button>
@@ -177,7 +180,8 @@
         </select>
       </label>
       <p class="hint" id="teamsAccount"></p>
-      <div class="row"><button id="teamsLogin" class="muted" data-i18n="teamsLogin">Bei Teams anmelden</button><button id="teamsLogout" class="muted hidden" data-i18n="teamsLogout">Abmelden</button></div>
+      <p class="hint" id="teamsStatus"></p>
+      <div class="row"><button id="teamsLogin" class="muted" data-i18n="teamsLogin">Bei Teams anmelden</button><button id="teamsLogout" class="muted hidden" data-i18n="teamsLogout">Abmelden</button><button id="teamsRefresh" class="muted" data-i18n="teamsRefresh">Präsenz laden</button></div>
       <span class="msg" id="teamsMsg"></span>
     </div>
     <button id="saveSettings" data-i18n="save">Speichern</button>

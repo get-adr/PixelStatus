@@ -11,6 +11,7 @@ inline bool applyPreset(DisplayManager& d, const String& name) {
   else if (n == "call")                   d.showMessage("IN A CALL");
   else if (n == "busy")                   d.showMessage("BUSY");
   else if (n == "brb")                    d.showMessage("BRB");
+  else if (n == "dnd")                    d.showMessage("DND");
   else if (n == "free")                   d.showMessage("FREE");
   else if (n == "off" || n == "clear")    d.clear();
   else return false;

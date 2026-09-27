@@ -113,7 +113,7 @@ const T={
  de:{
   themeTitle:'Hell/Dunkel', langTitle:'Sprache',
   led1Title:'LED 1 (Rot)', led2Title:'LED 2 (Gruen)',
-  clock:'Uhrzeit', customText:'Eigener Text', timer:'Timer', off:'Aus',
+  free:'Frei', clock:'Uhrzeit', customText:'Eigener Text', timer:'Timer', off:'Aus',
   textPh:'Text...', scroll:'Scrollen', show:'Anzeigen',
   minutes:'Minuten', countup:'Hochzaehlen', stop:'Stopp',
   play:'Start', pause:'Pause',
@@ -184,7 +184,7 @@ const T={
  en:{
   themeTitle:'Light/Dark', langTitle:'Language',
   led1Title:'LED 1 (red)', led2Title:'LED 2 (green)',
-  clock:'Clock', customText:'Custom Text', timer:'Timer', off:'Off',
+  free:'Free', clock:'Clock', customText:'Custom Text', timer:'Timer', off:'Off',
   textPh:'Text...', scroll:'Scroll', show:'Show',
   minutes:'Minutes', countup:'Count Up', stop:'Stop',
   play:'Start', pause:'Pause',
@@ -302,6 +302,8 @@ static const char PAGE[] PROGMEM = R"HTML(<!DOCTYPE html>
  <button data-txt="IN A CALL" onclick="preset('call')">In a Call</button>
  <button data-txt="BUSY" onclick="preset('busy')">Busy</button>
  <button data-txt="BRB" onclick="preset('brb')">BRB</button>
+ <button data-txt="FREE" onclick="preset('free')" data-i18n="free">Frei</button>
+ <button data-txt="DND" onclick="preset('dnd')">DND</button>
  <button data-mode="clock" onclick="clock()" data-i18n="clock">Uhrzeit</button>
  <button data-mode="text" onclick="choose('text')" data-i18n="customText">Eigener Text</button>
  <button data-mode="timer" onclick="choose('timer')" data-i18n="timer">Timer</button>

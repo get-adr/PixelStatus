@@ -221,7 +221,7 @@ void MqttBridge::publishDiscovery() {
   publishOne("select", "status",
     "{\"name\":\"Status\",\"unique_id\":\"pixelstatus_" + nodeId() + "_status\"," + avail +
     "\"command_topic\":\"" + base + "/cmd/preset\","
-    "\"options\":[\"onair\",\"call\",\"busy\",\"brb\",\"free\",\"off\"]," + dev + "}");
+    "\"options\":[\"onair\",\"call\",\"busy\",\"brb\",\"dnd\",\"free\",\"off\"]," + dev + "}");
 
   // Eigener Text -- state_topic zeigt, was gerade tatsaechlich angezeigt wird
   // (auch wenn per Web-UI/USB gesetzt), nicht nur den zuletzt per MQTT gesendeten.

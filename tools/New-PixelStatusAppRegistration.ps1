@@ -1,19 +1,18 @@
 # Einmaliges Helper-Skript: legt die Microsoft-Entra-App-Registrierung an, die
-# die PixelStatus-Companion-App fuer die Teams-Präsenz braucht (Public Client,
-# delegierte Berechtigung Presence.Read). Die Anmeldung laeuft im Systembrowser
-# (Out-of-Band), weil der Device-Code-Flow in vielen Tenants gesperrt ist --
-# fuer dieses einmalige Einrichten laeuft das aber problemlos.
+# die PixelStatus-Companion-App fuer die Teams-Praesenz braucht (Public Client,
+# delegierte Berechtigung Presence.Read). Die Anmeldung laeuft im Systembrowser.
 #
 #   pwsh ./New-PixelStatusAppRegistration.ps1                 # Standard-Name
 #   pwsh ./New-PixelStatusAppRegistration.ps1 -InstallModules # fehlende Module installieren
 #   pwsh ./New-PixelStatusAppRegistration.ps1 -DisplayName "PixelStatus" -Tenant "<tenant-id>"
 #
-# Am Ende gibt es die Client (Application) ID aus, die in die Companion-App
-# (Einstellungen -> Entra-Client-ID) eingetragen wird.
+# Am Ende gibt es die Client (Application) ID fuer die Companion-App aus.
 [CmdletBinding()]
 param(
   [string]$DisplayName = "PixelStatus",
   [string]$Tenant = "",        # leer = Anmeldetenant des Benutzers
+  # Muss exakt zur Companion-App passen (fester Loopback-Port).
+  [string]$RedirectUri = "http://127.0.0.1:8939/callback",
   [switch]$InstallModules
 )
 
@@ -22,8 +21,7 @@ $ErrorActionPreference = "Stop"
 # -- Benoetigte Graph-PowerShell-Module -------------------------------------
 $requiredModules = @(
   "Microsoft.Graph.Authentication",
-  "Microsoft.Graph.Applications",
-  "Microsoft.Graph.Identity.DirectoryManagement"
+  "Microsoft.Graph.Applications"
 )
 $missing = @($requiredModules | Where-Object { -not (Get-Module -ListAvailable -Name $_) })
 if ($missing.Count -gt 0) {
@@ -36,19 +34,23 @@ if ($missing.Count -gt 0) {
     exit 1
   }
 }
-Import-Module -Name @("Microsoft.Graph.Authentication", "Microsoft.Graph.Applications",
-                      "Microsoft.Graph.Identity.DirectoryManagement")
+Import-Module -Name @("Microsoft.Graph.Authentication", "Microsoft.Graph.Applications")
 
 # -- Anmeldung (Browser, Out-of-Band) ---------------------------------------
 Write-Host "Anmeldung bei Microsoft Entra -- es oeffnet sich ein Browserfenster." -ForegroundColor Cyan
+# Microsoft Graph bietet fuer diese delegierten Schreiboperationen keinen
+# Application.ReadWrite.OwnedBy-Scope. Application.ReadWrite.All ist daher der
+# engste nutzbare delegierte Scope; ein Service-Principal-Zugriff wird nicht
+# angefordert.
 $connectParams = @{
-  Scopes = @("Application.ReadWrite.Owned")
+  Scopes = @("Application.ReadWrite.All")
 }
 if ($Tenant) { $connectParams["TenantId"] = $Tenant }
 Connect-MgGraph @connectParams
 
 # App-Registrierung: vorhandene uebernehmen statt eine Duplikat zu erzeugen.
-$app = Get-MgApplication -Filter "displayName eq '$DisplayName'" -ErrorAction SilentlyContinue |
+$escapedDisplayName = $DisplayName.Replace("'", "''")
+$app = Get-MgApplication -Filter "displayName eq '$escapedDisplayName'" |
   Select-Object -First 1
 if ($app) {
   Write-Warning ("Es existiert bereits eine App '$DisplayName' (AppId {0}) -- wird uebernommen." -f $app.AppId)
@@ -57,30 +59,36 @@ if ($app) {
   Write-Host ("App-Registrierung angelegt: '{0}' (AppId {1})" -f $app.DisplayName, $app.AppId) -ForegroundColor Green
 }
 
-# -- Delegierte Berechtigung Presence.Read ----------------------------------
-# Der Scope-GUID wird dynamisch vom Graph-Service-Principal aufgelost, statt
-# hart verdrahtet: die GUID ist ein Implementierungsdetail Microsofts und kann
-# sich aendern, der menschenlesbare Scope-Name aber nicht.
+# Die Microsoft-Graph-App-ID und Presence.Read-Scope-ID sind stabile IDs. Die
+# feste Scope-ID vermeidet Application.Read.All nur zum Lesen des Graph-SP.
 $graphSpAppId = "00000003-0000-0000-c000-000000000000"
-$sp = Get-MgServicePrincipal -Filter "appId eq '$graphSpAppId'"
-# PowerShell-Zugriff auf PSCustomObject-Eigenschaften ist groessenunabhaengig,
-# der Zugriff bleibt also robust gegen die Schreibweise des SDKs.
-$scopeId = ($sp.Api.Oauth2PermissionScopes | Where-Object { $_.Value -eq "Presence.Read" } |
-  Select-Object -First 1).Id
-if (-not $scopeId) {
-  Write-Error "Scope 'Presence.Read' im Graph-Service-Principal nicht gefunden -- kann nicht automatisch angelegt werden."
-  exit 1
-}
+$presenceReadScopeId = "76bc735e-aecd-4a1d-8b4c-2b915deabb79"
 
-# requiredResourceAccess ist ein Replace-Feld: vorhandene Eintraege behalten,
-# nur den Graph-Eintrag idempotent (neu) setzen.
+# requiredResourceAccess ist ein Replace-Feld: andere API-Ressourcen bleiben
+# erhalten; fuer Microsoft Graph wird nur Presence.Read eingetragen.
 $rra = @($app.RequiredResourceAccess | Where-Object { $_.ResourceAppId -ne $graphSpAppId })
 $rra += [ordered]@{
   resourceAppId  = $graphSpAppId
-  resourceAccess = @([ordered]@{ id = $scopeId; type = "Scope" })
+  resourceAccess = @([ordered]@{ id = $presenceReadScopeId; type = "Scope" })
 }
-Update-MgApplication -ApplicationId $app.Id -BodyParameter @{ requiredResourceAccess = $rra }
-Write-Host "Delegierte Berechtigung 'Presence.Read' gesetzt." -ForegroundColor Green
+
+# Nur die native Redirect-Plattform setzen. Vorhandene Web-Redirects und
+# Zugangsdaten bleiben unangetastet; sie sind fuer den PKCE-Flow nicht noetig.
+Update-MgApplication -ApplicationId $app.Id -ErrorAction Stop -BodyParameter @{
+  requiredResourceAccess = $rra
+  publicClient           = @{ redirectUris = @($RedirectUri) }
+}
+
+# Public-Client-Fallback fuer den nativen PKCE-Flow aktivieren.
+Update-MgApplication -ApplicationId $app.Id -IsFallbackPublicClient $true -ErrorAction Stop
+
+# Nachpruefung: die exakte Loopback-URI muss als Public-Client-Redirect stehen.
+$app2 = Get-MgApplication -ApplicationId $app.Id
+if (@($app2.PublicClient.RedirectUris) -notcontains $RedirectUri) {
+  Write-Error "publicClient.redirectUris enthaelt die Loopback nicht (ist: '$(@($app2.PublicClient.RedirectUris) -join ', ')') -- App ist nicht korrekt konfiguriert."
+  exit 1
+}
+Write-Host "Delegierte Berechtigung 'Presence.Read' + Public-Client-Redirect '$RedirectUri' gesetzt." -ForegroundColor Green
 
 Write-Host ""
 Write-Host "Fertig. Client (Application) ID fuer die Companion-App:" -ForegroundColor Cyan

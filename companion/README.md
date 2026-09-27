@@ -101,10 +101,11 @@ verwendet Microsoft Graph (`GET /me/presence`) und bietet zwei Login-Methoden
 (Einstellungen → „Login-Methode“):
 
 - **Browser (empfohlen, Default):** Authorization-Code-Flow mit PKCE. Die App
-  hört kurz auf `127.0.0.1` (zufälliger Port), öffnet den Systembrowser auf der
-  Anmelde-URL und tauscht den zurückgelieferten Code gegen Tokens ein. Der
-  Loopback-Redirect ist für Public Clients mit PKCE ohne Registrierung erlaubt
-  (RFC 8252), dadurch ist kein fester Callback-Port im Voraus nötig.
+  hört kurz auf `127.0.0.1:8939`, öffnet den Systembrowser auf der Anmelde-URL
+  und tauscht den zurückgelieferten Code gegen Tokens ein. Die passende
+  Loopback-URI muss in der App-Registrierung eingetragen sein. Ein erneuter
+  Klick auf „Anmelden“ bricht einen noch wartenden Vorgang ab und gibt den
+  Port sofort wieder frei.
 - **Device-Code:** gerätecodebasierter Login (Code im Browser eingeben), der in
   vielen Tenants gesperrt ist — als Option für Tenants, die ihn erlauben.
 
@@ -118,13 +119,25 @@ Repo anlegen (läuft selbst per Browser-Login):
 pwsh tools/New-PixelStatusAppRegistration.ps1 -InstallModules
 ```
 
-Es legt die App an, setzt `Presence.Read` und gibt die Client-ID aus, die in
-die Einstellungen eingetragen wird.
+Es legt die App an, setzt `Presence.Read` und die Loopback-URI und gibt die
+Client-ID aus, die in die Einstellungen eingetragen wird. Für das Erstellen und
+Aktualisieren von App-Registrierungen gibt es keinen passenden delegierten
+`Application.ReadWrite.OwnedBy`-Scope; der Helper benötigt deshalb
+`Application.ReadWrite.All`. Es werden keine weiteren Graph-Berechtigungen
+angefordert. Die Anmeldung muss von einem Konto erfolgen, das im Tenant
+App-Registrierungen verwalten darf.
 
 Access- und Refresh-Tokens werden nicht in `settings.json` gespeichert, sondern
 im nativen Credential Store des Betriebssystems. `InACall`/`InAMeeting` werden
-zu „In a Call“, `Busy`/`DoNotDisturb` zu „Busy“, `BeRightBack` zu „BRB“ und
-`Available` zu „On Air“ abgebildet.
+zu „In a Call“, `Busy` zu „Busy“, `DoNotDisturb` zu „DND“, `BeRightBack` zu
+„BRB“ und `Available` zu „Frei“ (Matrix: `FREE`) abgebildet.
+
+Die Präsenz wird im Hintergrund alle 10 s abgefragt; ans Display geht nur eine
+Änderung. Ist Teams als Quelle gespeichert, zeigt das Fenster über den
+Status-Buttons Login-Status und aktuelle Präsenz und markiert den zugeordneten
+Button mit einem „Teams“-Badge (unabhängig von der grünen Markierung, die den
+tatsächlichen Display-Inhalt zeigt). Das Fenster nutzt dafür das Ergebnis der
+Hintergrundabfrage und fragt Graph nicht zusätzlich ab.
 
 ## Aufbau
 

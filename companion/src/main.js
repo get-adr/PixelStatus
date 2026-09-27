@@ -20,7 +20,7 @@ attachExternalLinks();
 // ---- Uebersetzungen (DE/EN), Muster gespiegelt an src/WebPortal.cpp (Firmware) ----
 const T = {
   de: {
-    clock: "Uhrzeit", customText: "Eigener Text", off: "Aus",
+    free: "Frei", clock: "Uhrzeit", customText: "Eigener Text", off: "Aus",
     textPh: "Text...", scroll: "Scrollen", show: "Anzeigen",
     countup: "Hochzählen", play: "Start", pause: "Pause", stop: "Stopp", extraLeds: "Zusatz-LEDs", on: "An",
     altBlinkBtn: "Wechselblinken",
@@ -54,6 +54,8 @@ const T = {
     teamsClientId: "Entra-Client-ID", teamsTenant: "Tenant", teamsLogin: "Bei Teams anmelden", teamsLogout: "Abmelden",
     teamsLoginMethod: "Login-Methode", loginMethodBrowser: "Browser (empfohlen)", loginMethodDevice: "Device-Code",
     teamsBrowserWaiting: "Bitte im Browser anmelden …",
+    teamsRefresh: "Präsenz laden", teamsLoggedIn: "Angemeldet:", teamsLoggedOut: "Nicht angemeldet",
+    teamsPresence: "Teams-Status", teamsShows: "zeigt", teamsNoMap: "keine Zuordnung (Anzeige bleibt)",
     errorPrefix: "Fehler: ", saved: "Gespeichert.", savedRestartHost: "Gespeichert. Neustart (Hostname)…",
     pickTime: "Bitte eine Uhrzeit wählen.", timeSetNoNtp: "Uhrzeit gesetzt (NTP deaktiviert).",
     pickVolts: "Bitte die mit dem Multimeter gemessene Spannung eintragen.",
@@ -67,7 +69,7 @@ const T = {
     synced: "synchronisiert", notSynced: "nicht synchronisiert",
   },
   en: {
-    clock: "Clock", customText: "Custom Text", off: "Off",
+    free: "Free", clock: "Clock", customText: "Custom Text", off: "Off",
     textPh: "Text...", scroll: "Scroll", show: "Show",
     countup: "Count Up", play: "Start", pause: "Pause", stop: "Stop", extraLeds: "Extra LEDs", on: "On",
     altBlinkBtn: "Alternate Blink",
@@ -101,6 +103,8 @@ const T = {
     teamsClientId: "Entra client ID", teamsTenant: "Tenant", teamsLogin: "Sign in to Teams", teamsLogout: "Sign out",
     teamsLoginMethod: "Login method", loginMethodBrowser: "Browser (recommended)", loginMethodDevice: "Device code",
     teamsBrowserWaiting: "Please sign in in the browser …",
+    teamsRefresh: "Load presence", teamsLoggedIn: "Signed in:", teamsLoggedOut: "Not signed in",
+    teamsPresence: "Teams status", teamsShows: "shows", teamsNoMap: "no mapping (display unchanged)",
     errorPrefix: "Error: ", saved: "Saved.", savedRestartHost: "Saved. Restarting (hostname changed)…",
     pickTime: "Please choose a time.", timeSetNoNtp: "Time set (NTP disabled).",
     pickVolts: "Please enter the voltage measured with the multimeter.",
@@ -126,12 +130,13 @@ function applyI18n() {
 async function setLang(l) {
   currentLang = l;
   applyI18n();
+  renderTeams(lastTeamsSt);
   try { await invoke("set_language", { lang: l }); } catch (e) { /* Persistenz optional */ }
 }
 document.getElementById("lang").addEventListener("change", (e) => setLang(e.target.value));
 
 // Preset-Wert -> angezeigter Text (fuer die Markierung des aktiven Status).
-const PRESET_TEXT = { onair: "ON AIR", call: "IN A CALL", busy: "BUSY", brb: "BRB" };
+const PRESET_TEXT = { onair: "ON AIR", call: "IN A CALL", busy: "BUSY", brb: "BRB", free: "FREE", dnd: "DND" };
 
 // Markiert den Button, der zum aktuellen Anzeige-Zustand passt.
 function highlight(st) {
@@ -225,8 +230,8 @@ async function initSel() {
   } catch (e) { /* Geraet evtl. nicht erreichbar */ }
 }
 
-setInterval(refreshState, 3000);
-document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshState(); });
+setInterval(() => { refreshState(); refreshTeamsLine(); }, 3000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { refreshState(); refreshTeamsLine(); } });
 refreshState();
 initSel();
 
@@ -276,10 +281,13 @@ async function loadSettings() {
   document.getElementById("teamsTenant").value = s.teams_tenant || "organizations";
   document.getElementById("teamsLoginMethod").value = s.teams_login_method || "browser";
   updateTeamsSettings();
-  updateTeamsAccount(s.teams_account || "");
+  updateTeamsAccount(!!(s.teams_account || ""), s.teams_account || "");
+  savedTeams = { source: s.auto_source || (s.auto_call ? "microphone" : "off"),
+                 clientId: s.teams_client_id || "", tenant: s.teams_tenant || "organizations" };
   currentLang = s.language === "en" ? "en" : "de";
   document.getElementById("lang").value = currentLang;
   applyI18n();
+  refreshTeamsLine();
   document.getElementById("devhost").textContent =
     s.transport === "serial" ? ("USB " + (s.serial_port || "(kein Port)")) : ("WiFi " + s.http_host);
   await refreshPorts(s.serial_port);
@@ -312,18 +320,100 @@ document.getElementById("saveSettings").addEventListener("click", async () => {
     language: currentLang,   // sonst wuerde save_settings die per setLang() gesetzte Sprache ueberschreiben
   };
   await invoke("save_settings", { new: settings });
+  savedTeams = { source: settings.auto_source, clientId: settings.teams_client_id, tenant: settings.teams_tenant };
+  refreshTeamsLine();
 });
 
 function updateTeamsSettings() {
-  document.getElementById("teamsSettings").classList.toggle("hidden", document.getElementById("autoSource").value !== "teams");
+  const isTeams = document.getElementById("autoSource").value === "teams";
+  document.getElementById("teamsSettings").classList.toggle("hidden", !isTeams);
+  if (isTeams) loadTeamsStatus();
 }
-function updateTeamsAccount(account) {
+// loggedIn ist die Quelle der Wahrheit (Keyring-Token, via teams_status);
+// der Name ist optional (aeltere Eintraege/leerer UPN) und darf das nicht
+// umdrehen -- sonst erscheint "Angemeldet" als "Nicht angemeldet".
+function updateTeamsAccount(loggedIn, name) {
   const el = document.getElementById("teamsAccount");
-  el.dataset.account = account;
-  el.textContent = account ? `${tr("teamsLogin")}: ${account}` : "";
-  document.getElementById("teamsLogout").classList.toggle("hidden", !account);
+  name = name || "";
+  el.dataset.account = name;
+  el.textContent = loggedIn
+    ? (name ? `${tr("teamsLoggedIn")} ${name}` : tr("teamsLoggedIn"))
+    : tr("teamsLoggedOut");
+  document.getElementById("teamsLogout").classList.toggle("hidden", !loggedIn);
+}
+// Mappede Matrix-Status-Namen (fest Englisch, wie die Presets) fuer die Anzeige.
+const TEAMS_DISPLAY = { onair: "On Air", call: "In a Call", busy: "Busy", brb: "BRB", dnd: "DND" };
+
+// Gespeicherte (= vom Auto-Status-Watcher tatsaechlich genutzte) Teams-
+// Einstellungen. Die Statuszeile im Hauptbereich richtet sich danach, nicht
+// nach noch ungespeicherten Formularwerten.
+let savedTeams = { source: "off", clientId: "", tenant: "organizations" };
+let lastTeamsSt = null;
+
+function teamsPresenceText(st) {
+  let line = tr("teamsPresence") + ": " + (st.availability || "–") + " · " + (st.activity || "–");
+  if (st.availability) {
+    line += "  →  " + (st.display ? tr("teamsShows") + " " + (st.display === "free" ? tr("free") : TEAMS_DISPLAY[st.display] || st.display) : tr("teamsNoMap"));
+  }
+  if (st.error) line += "  (" + st.error + ")";
+  return line;
+}
+
+// Statuszeile im Hauptbereich + "Teams"-Markierung am passenden Status-Button.
+// st === null blendet beides aus (Teams nicht als Quelle aktiv).
+function renderTeams(st) {
+  lastTeamsSt = st;
+  const line = document.getElementById("teamsLine");
+  line.classList.toggle("hidden", !st);
+  const mapped = st && st.logged_in ? st.display : "";
+  document.querySelectorAll('button[data-action="preset"]').forEach((b) =>
+    b.classList.toggle("teams", !!mapped && b.dataset.value === mapped));
+  if (!st) return;
+  const dot = document.getElementById("teamsDot");
+  dot.classList.toggle("ok", st.logged_in && !st.error);
+  dot.classList.toggle("err", st.logged_in && !!st.error);
+  let text;
+  if (!st.logged_in) text = "Teams: " + tr("teamsLoggedOut");
+  else text = (st.account ? st.account + " · " : "") + teamsPresenceText(st);
+  document.getElementById("teamsLineText").textContent = text;
+}
+
+// Nutzt die zuletzt vom Hintergrund-Watcher (alle 10 s) abgefragte Praesenz
+// (cached) -- das Fenster loest dadurch keine zusaetzlichen Graph-Abfragen aus.
+async function refreshTeamsLine() {
+  if (savedTeams.source !== "teams" || !savedTeams.clientId) { renderTeams(null); return; }
+  if (document.hidden) return;
+  try {
+    renderTeams(await invoke("teams_status", {
+      clientId: savedTeams.clientId, tenant: savedTeams.tenant, cached: true,
+    }));
+  } catch (e) { /* Anzeige unveraendert lassen */ }
+}
+
+async function loadTeamsStatus() {
+  const clientId = document.getElementById("teamsClientId").value.trim();
+  const tenant = document.getElementById("teamsTenant").value.trim() || "organizations";
+  const el = document.getElementById("teamsStatus");
+  if (!clientId) { el.textContent = ""; updateTeamsAccount(false, ""); return; }
+  el.textContent = "…";
+  try {
+    const st = await invoke("teams_status", { clientId, tenant });
+    if (savedTeams.source === "teams" && savedTeams.clientId === clientId) renderTeams(st);
+    // Login-Status-Zeile + Abmelden-Button aus demselben Wert wie hier (Keyring),
+    // nicht aus settings.teams_account -- die zwei durften sich sonst widersprechen.
+    if (!st.logged_in) {
+      el.textContent = tr("teamsLoggedOut");
+      updateTeamsAccount(false, "");
+      return;
+    }
+    updateTeamsAccount(true, st.account);
+    el.textContent = teamsPresenceText(st);
+  } catch (e) {
+    el.textContent = tr("errorPrefix") + e;
+  }
 }
 document.getElementById("autoSource").addEventListener("change", updateTeamsSettings);
+document.getElementById("teamsRefresh").addEventListener("click", loadTeamsStatus);
 document.getElementById("teamsLogin").addEventListener("click", async () => {
   const msg = document.getElementById("teamsMsg");
   const clientId = document.getElementById("teamsClientId").value.trim();
@@ -335,14 +425,18 @@ document.getElementById("teamsLogin").addEventListener("click", async () => {
       const start = await invoke("teams_browser_start", { clientId, tenant });
       await invoke("plugin:opener|open_url", { url: start.authorize_url });
       const account = await invoke("teams_browser_complete");
-      updateTeamsAccount(account.username || account.display_name);
+      savedTeams.clientId = clientId; savedTeams.tenant = tenant;   // vom Backend beim Login gespeichert
+      updateTeamsAccount(true, account.username || account.display_name);
+      loadTeamsStatus();
     } else {
       msg.textContent = "…";
       const login = await invoke("teams_start_login", { clientId, tenant });
       await invoke("plugin:opener|open_url", { url: login.verification_uri });
       msg.textContent = `${login.message} (${login.user_code})`;
       const account = await invoke("teams_complete_login", { login, clientId, tenant });
-      updateTeamsAccount(account.username || account.display_name);
+      savedTeams.clientId = clientId; savedTeams.tenant = tenant;
+      updateTeamsAccount(true, account.username || account.display_name);
+      loadTeamsStatus();
     }
     msg.textContent = tr("saved");
   } catch (e) {
@@ -352,7 +446,9 @@ document.getElementById("teamsLogin").addEventListener("click", async () => {
 document.getElementById("teamsLogout").addEventListener("click", async () => {
   try {
     await invoke("teams_logout", { clientId: document.getElementById("teamsClientId").value.trim() });
-    updateTeamsAccount("");
+    updateTeamsAccount(false, "");
+    document.getElementById("teamsStatus").textContent = tr("teamsLoggedOut");
+    refreshTeamsLine();
     document.getElementById("teamsMsg").textContent = tr("saved");
   } catch (e) {
     document.getElementById("teamsMsg").textContent = tr("errorPrefix") + e;

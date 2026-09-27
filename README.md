@@ -475,7 +475,7 @@ unsignierten Downloads, Projektaufbau) siehe
 | Endpunkt | Beispiel |
 |----------|----------|
 | Generisch | `/api/cmd?action=preset&value=onair` (von der Companion-App genutzt) |
-| Preset   | `/api/preset?name=onair` (onair, call, busy, brb, free, off) |
+| Preset   | `/api/preset?name=onair` (onair, call, busy, brb, dnd, free, off) |
 | Text     | `/api/text?msg=Hallo&scroll=1` |
 | Timer    | `/api/timer?seconds=300&dir=down` · `?dir=up` · `?stop=1` |
 | Helligkeit | `/api/brightness?level=8` (0–15) |

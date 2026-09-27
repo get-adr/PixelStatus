@@ -3,6 +3,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::net::TcpListener;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -38,6 +39,7 @@ struct DeviceResponse {
 struct TokenResponse {
     access_token: Option<String>,
     refresh_token: Option<String>,
+    id_token: Option<String>,
     expires_in: Option<u64>,
     error: Option<String>,
     error_description: Option<String>,
@@ -48,6 +50,12 @@ struct StoredToken {
     access_token: String,
     refresh_token: Option<String>,
     expires_at: u64,
+    // Konto (UPN, sonst Anzeigename) direkt im Credential-Store: so ist der
+    // Login-Status und der angezeigte Name unabhaengig von den App-Einstellungen,
+    // die erst beim "Speichern" gemeldet werden. `default`, damit aeltere
+    // Eintraege ohne das Feld sich trotzdem laden.
+    #[serde(default)]
+    account: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -152,13 +160,12 @@ pub async fn complete_login(
         .await?;
         if let Some(access_token) = response.access_token {
             return finish_login(
-                &client,
                 client_id,
                 access_token,
                 response.refresh_token,
+                response.id_token,
                 response.expires_in,
-            )
-            .await;
+            );
         }
         match response.error.as_deref() {
             Some("authorization_pending") => {}
@@ -173,23 +180,69 @@ pub async fn complete_login(
 }
 
 // Gemeinsamer Abschluss beider Login-Flows: Token im nativen Credential-Store
-// ablegen und das Konto (Name/UPN) abrufen.
-async fn finish_login(
-    client: &Client,
+// ablegen. Das Konto kommt aus den Token-Claims (ID-Token, sonst Access-Token):
+// /me wuerde zusaetzlich User.Read brauchen, die App fordert aber bewusst nur
+// Presence.Read an. Die Claims werden nur zur Anzeige gelesen, nicht geprueft.
+fn finish_login(
     client_id: &str,
     access_token: String,
     refresh_token: Option<String>,
+    id_token: Option<String>,
     expires_in: Option<u64>,
 ) -> Result<TeamsAccount, String> {
+    let account = id_token
+        .as_deref()
+        .and_then(account_from_jwt)
+        .or_else(|| account_from_jwt(&access_token))
+        .unwrap_or(TeamsAccount {
+            display_name: String::new(),
+            username: String::new(),
+        });
+    let name = if account.username.is_empty() {
+        account.display_name.clone()
+    } else {
+        account.username.clone()
+    };
     let token = StoredToken {
-        access_token: access_token.clone(),
+        access_token,
         refresh_token,
         expires_at: now() + expires_in.unwrap_or(3600),
+        account: if name.is_empty() { None } else { Some(name) },
     };
     token_entry(client_id)?
         .set_password(&serde_json::to_string(&token).map_err(|e| e.to_string())?)
         .map_err(|e| format!("Token-Speicher: {e}"))?;
-    current_account(client, &token.access_token).await
+    Ok(account)
+}
+
+// Liest Anzeigename und Benutzername (UPN/E-Mail) aus dem Payload eines JWT.
+fn account_from_jwt(token: &str) -> Option<TeamsAccount> {
+    use base64::Engine;
+    let payload = token.split('.').nth(1)?;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload.trim_end_matches('='))
+        .ok()?;
+    let claims: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let claim = |keys: &[&str]| {
+        keys.iter()
+            .find_map(|k| {
+                claims
+                    .get(*k)
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+            })
+            .unwrap_or_default()
+            .to_string()
+    };
+    let account = TeamsAccount {
+        display_name: claim(&["name"]),
+        username: claim(&["preferred_username", "upn", "email", "unique_name"]),
+    };
+    if account.display_name.is_empty() && account.username.is_empty() {
+        None
+    } else {
+        Some(account)
+    }
 }
 
 async fn tokio_sleep(seconds: u64) {
@@ -241,28 +294,6 @@ async fn current_token(client_id: &str, tenant: &str) -> Result<StoredToken, Str
     Ok(token)
 }
 
-async fn current_account(client: &Client, access_token: &str) -> Result<TeamsAccount, String> {
-    #[derive(Deserialize)]
-    struct Me {
-        display_name: Option<String>,
-        user_principal_name: Option<String>,
-        mail: Option<String>,
-    }
-    let me = client
-        .get("https://graph.microsoft.com/v1.0/me")
-        .bearer_auth(access_token)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .json::<Me>()
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok(TeamsAccount {
-        display_name: me.display_name.unwrap_or_default(),
-        username: me.user_principal_name.or(me.mail).unwrap_or_default(),
-    })
-}
-
 pub async fn presence(client_id: &str, tenant: &str) -> Result<(String, String), String> {
     let client = Client::new();
     let token = current_token(client_id, tenant).await?;
@@ -294,14 +325,105 @@ pub fn logout(client_id: &str) -> Result<(), String> {
         .map_err(|e| format!("Teams-Abmeldung: {e}"))
 }
 
+// Login-Status + gespeicherter Konto-Name aus EINEM Keyring-Zugriff: None =
+// nicht angemeldet (kein Token im nativen Credential-Store, unabhaengig davon,
+// ob er gerade gueltig oder erneuerbar ist); Some(name) = angemeldet, name ggf.
+// leer. Der Name wird beim Login neben dem Token abgelegt, damit er auch dann da
+// ist, wenn die App-Einstellung (erst beim "Speichern" geschrieben) leer ist.
+fn stored_login(client_id: &str) -> Option<String> {
+    let raw = token_entry(client_id).ok()?.get_password().ok()?;
+    let Ok(token) = serde_json::from_str::<StoredToken>(&raw) else {
+        return Some(String::new());
+    };
+    // Aeltere Eintraege ohne Namen: aus den Claims des Access-Tokens ableiten,
+    // damit kein erneuter Login noetig ist.
+    Some(
+        token
+            .account
+            .or_else(|| {
+                account_from_jwt(&token.access_token).map(|a| {
+                    if a.username.is_empty() {
+                        a.display_name
+                    } else {
+                        a.username
+                    }
+                })
+            })
+            .unwrap_or_default(),
+    )
+}
+
+#[derive(Serialize)]
+pub struct TeamsPresence {
+    pub logged_in: bool,
+    // Konto-Name aus dem Token (Keyring); kann bei aelteren Eintraegen leer sein.
+    pub account: String,
+    pub availability: String,
+    pub activity: String,
+    // Fehlertext, falls die Praesenzabfrage (Trotz gueltigem Token) fehlschlug.
+    pub error: Option<String>,
+}
+
+// Login-Status + aktuelle Teams-Praesenz; reine Abfrage ohne Nebenwirkungen.
+// "angemeldet" ist der Keyring-Token -- NIE die App-Einstellung, die erst beim
+// "Speichern" geschrieben wird und sonst einen Login verdeckt.
+pub async fn status(client_id: &str, tenant: &str) -> TeamsPresence {
+    let Some(account) = stored_login(client_id) else {
+        return TeamsPresence::logged_out();
+    };
+    build_status(account, presence(client_id, tenant).await)
+}
+
+// Wie status(), aber mit bereits vorliegendem Praesenz-Ergebnis (z. B. dem
+// zuletzt vom Auto-Status-Watcher abgefragten) -- keine eigene Graph-Abfrage.
+pub fn status_with(client_id: &str, result: Result<(String, String), String>) -> TeamsPresence {
+    match stored_login(client_id) {
+        Some(account) => build_status(account, result),
+        None => TeamsPresence::logged_out(),
+    }
+}
+
+impl TeamsPresence {
+    fn logged_out() -> Self {
+        TeamsPresence {
+            logged_in: false,
+            account: String::new(),
+            availability: String::new(),
+            activity: String::new(),
+            error: None,
+        }
+    }
+}
+
+fn build_status(account: String, result: Result<(String, String), String>) -> TeamsPresence {
+    match result {
+        Ok((availability, activity)) => TeamsPresence {
+            logged_in: true,
+            account,
+            availability,
+            activity,
+            error: None,
+        },
+        Err(e) => TeamsPresence {
+            logged_in: true,
+            account,
+            availability: String::new(),
+            activity: String::new(),
+            error: Some(e),
+        },
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Browser-Login (Authorization-Code-Flow mit PKCE + Loopback-Redirect)
 //
 // Alternative zum Device-Code-Flow, der in vielen Tenants gesperrt ist. Die
-// App hoert kurz auf 127.0.0.1 (zufaelliger Port) auf, oeffnet den Browser auf
-// der Anmelde-URL und tauscht den zurueckgelieferten Code gegen Tokens ein.
-// Der Loopback-Redirect ist fuer Public Clients mit PKCE ohne Registrierung
-// erlaubt (RFC 8252), dadurch ist kein fester Callback-Port im Voraus noetig.
+// App hoert kurz auf dem festen Loopback-Port 127.0.0.1:8939 auf (dieser muss
+// in der App-Registrierung stehen -- ein dynamischer/Wildcard-Port wird von
+// manchen Tenants mit AADSTS50011 abgelehnt), oeffnet den Browser auf der
+// Anmelde-URL und tauscht den zurueckgelieferten Code gegen Tokens ein.
+// PKCE (S256) schuetzt den Code-Exchange; ein Client-Secret gibt es bewusst
+// nicht (Public Client).
 // ---------------------------------------------------------------------------
 
 #[derive(Serialize)]
@@ -316,12 +438,17 @@ struct BrowserLoginState {
     client_id: String,
     tenant: String,
     redirect_uri: String,
+    generation: u64,
 }
 
 // Ein Eintrag pro Client: browser_start_login legt ihn an, browser_complete_login
 // konsumiert ihn. Datei-statischer Mutex (Analogon zum MqttBridge-s_self), da es
 // je Client-ID nur einen laufenden Login gibt.
 static BROWSER_LOGIN: Mutex<Option<BrowserLoginState>> = Mutex::new(None);
+// Zaehlt Login-Starts hoch; ein wartender Worker bricht ab, sobald seine
+// Generation nicht mehr die aktuelle ist.
+static BROWSER_LOGIN_GEN: AtomicU64 = AtomicU64::new(0);
+const CALLBACK_ADDR: &str = "127.0.0.1:8939";
 
 const BROWSER_LOGIN_TIMEOUT_SECS: u64 = 300;
 
@@ -413,12 +540,21 @@ pub fn browser_start_login(client_id: &str, tenant: &str) -> Result<BrowserLogin
     if client_id.trim().is_empty() {
         return Err("Für Teams muss eine Microsoft-Entra-Client-ID eingetragen werden.".into());
     }
-    let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| format!("Callback-Server: {e}"))?;
-    let port = listener
-        .local_addr()
-        .map_err(|e| format!("Callback-Server: {e}"))?
-        .port();
-    let redirect_uri = format!("http://localhost:{port}/callback");
+    // Bereits laufenden Login beenden und dessen Listener (Port 8939) freigeben,
+    // sonst scheitert der Bind unten mit "address already in use" (z. B. Doppelklick
+    // auf "Anmelden"). Ein noch nicht abgeholter Login wird direkt verworfen; ein
+    // bereits wartender (Listener liegt dann im Worker-Thread) wird ueber die
+    // Generation abgebrochen und gibt den Port innerhalb eines Poll-Intervalls frei.
+    *BROWSER_LOGIN.lock().unwrap() = None;
+    let generation = BROWSER_LOGIN_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    // Fester Loopback-Port statt dynamisch: die Redirect-URI muss exakt in der
+    // App-Registrierung stehen; der Wildcard-Trick (localhost/127.0.0.1:0) wird
+    // von manchen Tenants/Plattformen nicht erkannt (AADSTS50011). 127.0.0.1 statt
+    // localhost vermeidet, dass der Browser localhost auf ::1 (IPv6) loest, waehrend
+    // wir nur 127.0.0.1 (IPv4) binden. Ein fremder Prozess auf dem Port koennte den
+    // Auth-Code zwar abgreifen, ohne den PKCE-Verifier aber nicht einloesen.
+    let listener = bind_callback_listener()?;
+    let redirect_uri = format!("http://{CALLBACK_ADDR}/callback");
     let (code_verifier, code_challenge) = pkce();
     let state = random_state();
     let authorize_url = format!(
@@ -430,22 +566,56 @@ pub fn browser_start_login(client_id: &str, tenant: &str) -> Result<BrowserLogin
         urlenc(&state),
         urlenc(&code_challenge),
     );
-    *BROWSER_LOGIN
-        .lock()
-        .unwrap() = Some(BrowserLoginState {
+    *BROWSER_LOGIN.lock().unwrap() = Some(BrowserLoginState {
         listener,
         code_verifier,
         state,
         client_id: client_id.to_string(),
         tenant: tenant.to_string(),
         redirect_uri,
+        generation,
     });
     Ok(BrowserLoginStart { authorize_url })
 }
 
+// Bindet den festen Callback-Port. Ein abgebrochener Vorgang gibt ihn erst beim
+// naechsten Poll seines Worker-Threads frei, daher kurz erneut versuchen.
+fn bind_callback_listener() -> Result<TcpListener, String> {
+    let deadline = Instant::now() + Duration::from_millis(1000);
+    loop {
+        match TcpListener::bind(CALLBACK_ADDR) {
+            Ok(l) => return Ok(l),
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse && Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => return Err(format!("Callback-Server {CALLBACK_ADDR}: {e}")),
+        }
+    }
+}
+
+// Minimales HTML-Escaping fuer Text, der in die Callback-Seite eingesetzt wird.
+fn html_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 // Blockiert (in einem Worker-Thread) auf den einen Callback-Request, prueft den
 // State (CSRF), antwortet dem Browser und liefert den Auth-Code zurueck.
-fn receive_auth_code(listener: TcpListener, expected_state: &str) -> Result<String, String> {
+fn receive_auth_code(
+    listener: TcpListener,
+    expected_state: &str,
+    generation: u64,
+) -> Result<String, String> {
     listener
         .set_nonblocking(true)
         .map_err(|e| format!("Callback-Server: {e}"))?;
@@ -454,6 +624,9 @@ fn receive_auth_code(listener: TcpListener, expected_state: &str) -> Result<Stri
         match listener.accept() {
             Ok((s, _)) => break s,
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                if BROWSER_LOGIN_GEN.load(Ordering::SeqCst) != generation {
+                    return Err("Anmeldung durch einen neuen Vorgang abgebrochen.".into());
+                }
                 if Instant::now() >= deadline {
                     return Err("Zeitüberschreitung: keine Browser-Anmeldung erhalten.".into());
                 }
@@ -496,7 +669,10 @@ fn receive_auth_code(listener: TcpListener, expected_state: &str) -> Result<Stri
 
     // Dem Browser eine kurze Rueckmeldung geben (Erfolg/Fehler) und ihn schliessen.
     let (title, body) = match &outcome {
-        Ok(_) => ("Erfolg", "Die Anmeldung war erfolgreich. Dieses Fenster kann geschlossen werden."),
+        Ok(_) => (
+            "Erfolg",
+            "Die Anmeldung war erfolgreich. Dieses Fenster kann geschlossen werden.",
+        ),
         Err(e) => ("Abgelehnt", e.as_str()),
     };
     let html = format!(
@@ -504,7 +680,7 @@ fn receive_auth_code(listener: TcpListener, expected_state: &str) -> Result<Stri
          <body style=\"font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#0b0f14;color:#e6edf3\">\
          <div style=\"text-align:center\"><h1 style=\"margin:0 0 8px\">{t}</h1><p>{b}</p></div></body></html>",
         t = title,
-        b = body
+        b = html_escape(body)
     );
     let resp = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -530,11 +706,13 @@ pub async fn browser_complete_login() -> Result<(TeamsAccount, String, String), 
     let tenant = bl.tenant;
     let redirect_uri = bl.redirect_uri;
     let listener = bl.listener;
+    let generation = bl.generation;
 
-    let join = tokio::task::spawn_blocking(move || receive_auth_code(listener, &expected_state))
-        .await;
-    let code_result =
-        join.map_err(|e| format!("Browser-Login-Thread fehlgeschlagen: {e}"))?;
+    let join = tokio::task::spawn_blocking(move || {
+        receive_auth_code(listener, &expected_state, generation)
+    })
+    .await;
+    let code_result = join.map_err(|e| format!("Browser-Login-Thread fehlgeschlagen: {e}"))?;
     let code = code_result?;
 
     let client = Client::new();
@@ -552,10 +730,18 @@ pub async fn browser_complete_login() -> Result<(TeamsAccount, String, String), 
         ],
     )
     .await?;
-    let access_token = response
-        .access_token
-        .ok_or_else(|| response.error_description.unwrap_or_else(|| "Kein Zugriffstoken erhalten.".into()))?;
-    let account = finish_login(&client, &client_id, access_token, response.refresh_token, response.expires_in).await?;
+    let access_token = response.access_token.ok_or_else(|| {
+        response
+            .error_description
+            .unwrap_or_else(|| "Kein Zugriffstoken erhalten.".into())
+    })?;
+    let account = finish_login(
+        &client_id,
+        access_token,
+        response.refresh_token,
+        response.id_token,
+        response.expires_in,
+    )?;
     Ok((account, client_id, tenant))
 }
 
@@ -563,6 +749,24 @@ pub async fn browser_complete_login() -> Result<(TeamsAccount, String, String), 
 mod tests {
     use super::*;
     use sha2::Digest;
+
+    #[test]
+    fn account_from_jwt_reads_claims() {
+        use base64::Engine;
+        let enc = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        let payload = enc.encode(r#"{"name":"Ada L","preferred_username":"ada@example.com"}"#);
+        let a = account_from_jwt(&format!("h.{payload}.s")).unwrap();
+        assert_eq!(a.display_name, "Ada L");
+        assert_eq!(a.username, "ada@example.com");
+        let upn_only = enc.encode(r#"{"upn":"bob@example.com"}"#);
+        assert_eq!(
+            account_from_jwt(&format!("h.{upn_only}.s"))
+                .unwrap()
+                .username,
+            "bob@example.com"
+        );
+        assert!(account_from_jwt("not-a-jwt").is_none());
+    }
 
     #[test]
     fn urlenc_roundtrip() {
