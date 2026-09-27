@@ -85,13 +85,46 @@ eingerichtet.
 - **Verbindung** in den Einstellungen: WiFi (Host, Standard `pixelstatus.local`)
   oder USB (seriellen Port wählen, ↻ aktualisiert die Liste). Wird im
   App-Config-Verzeichnis persistiert.
-- **Auto-Status:** Checkbox „Automatisch ‚In a Call'…" in den Einstellungen. Die
-  App pollt alle 2 s die Mikrofonnutzung und schaltet bei Aktivität auf
+- **Auto-Status:** In den Einstellungen lässt sich die automatische Statusquelle
+  wählen. Bei Mikrofon-Nutzung pollt die App die Mikrofonnutzung und schaltet
+  bei Aktivität auf
   „In a Call"; beim Auflegen wird der zuvor manuell gesetzte Status
   wiederhergestellt (sonst geleert).
   - macOS: über CoreAudio (`kAudioDevicePropertyDeviceIsRunningSomewhere`) —
     erkennt jede Mikrofonnutzung, **ohne** Mikrofon-Berechtigung anzufordern.
   - Windows: über die Registry (`CapabilityAccessManager\ConsentStore`).
+
+### Microsoft-Teams-Präsenz
+
+Als automatische Statusquelle kann „Microsoft Teams“ gewählt werden. Die App
+verwendet Microsoft Graph (`GET /me/presence`) und bietet zwei Login-Methoden
+(Einstellungen → „Login-Methode“):
+
+- **Browser (empfohlen, Default):** Authorization-Code-Flow mit PKCE. Die App
+  hört kurz auf `127.0.0.1` (zufälliger Port), öffnet den Systembrowser auf der
+  Anmelde-URL und tauscht den zurückgelieferten Code gegen Tokens ein. Der
+  Loopback-Redirect ist für Public Clients mit PKCE ohne Registrierung erlaubt
+  (RFC 8252), dadurch ist kein fester Callback-Port im Voraus nötig.
+- **Device-Code:** gerätecodebasierter Login (Code im Browser eingeben), der in
+  vielen Tenants gesperrt ist — als Option für Tenants, die ihn erlauben.
+
+Dafür muss eine Microsoft-Entra-App-Registrierung als Public Client mit
+delegierter Berechtigung `Presence.Read` angelegt und deren Client-ID
+eingetragen werden; als Tenant ist `organizations` für Arbeits-/Schulkonten
+voreingestellt. Die Registrierung lässt sich einmalig mit dem Helper-Skript im
+Repo anlegen (läuft selbst per Browser-Login):
+
+```powershell
+pwsh tools/New-PixelStatusAppRegistration.ps1 -InstallModules
+```
+
+Es legt die App an, setzt `Presence.Read` und gibt die Client-ID aus, die in
+die Einstellungen eingetragen wird.
+
+Access- und Refresh-Tokens werden nicht in `settings.json` gespeichert, sondern
+im nativen Credential Store des Betriebssystems. `InACall`/`InAMeeting` werden
+zu „In a Call“, `Busy`/`DoNotDisturb` zu „Busy“, `BeRightBack` zu „BRB“ und
+`Available` zu „On Air“ abgebildet.
 
 ## Aufbau
 

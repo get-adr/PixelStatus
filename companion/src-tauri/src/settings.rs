@@ -11,13 +11,33 @@ pub struct Settings {
     pub http_host: String,   // z. B. "pixelstatus.local"
     pub serial_port: String, // z. B. "/dev/tty.usbserial-110" oder "COM3"
     #[serde(default)]
-    pub auto_call: bool,     // automatisch "In a Call" bei Mikrofonnutzung
+    pub auto_call: bool, // automatisch "In a Call" bei Mikrofonnutzung
+    #[serde(default)]
+    pub auto_source: String, // "off", "microphone" oder "teams"
+    #[serde(default)]
+    pub teams_client_id: String,
+    #[serde(default = "default_tenant")]
+    pub teams_tenant: String,
+    #[serde(default)]
+    pub teams_account: String,
+    #[serde(default = "default_login_method")]
+    pub teams_login_method: String, // "browser" oder "device"
     #[serde(default = "default_language")]
-    pub language: String,    // UI-Sprache: "de" oder "en"
+    pub language: String, // UI-Sprache: "de" oder "en"
 }
 
 fn default_language() -> String {
     "de".into()
+}
+
+fn default_tenant() -> String {
+    "organizations".into()
+}
+
+// Browser-Login (Authorization-Code mit Loopback) ist der Default, weil der
+// Device-Code-Flow in vielen Tenants gesperrt ist; "device" bleibt als Option.
+fn default_login_method() -> String {
+    "browser".into()
 }
 
 impl Default for Settings {
@@ -27,6 +47,11 @@ impl Default for Settings {
             http_host: "pixelstatus.local".into(),
             serial_port: String::new(),
             auto_call: false,
+            auto_source: "off".into(),
+            teams_client_id: String::new(),
+            teams_tenant: default_tenant(),
+            teams_account: String::new(),
+            teams_login_method: default_login_method(),
             language: default_language(),
         }
     }

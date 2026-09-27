@@ -1,5 +1,6 @@
 mod mic;
 mod settings;
+mod teams;
 mod transport;
 
 use settings::Settings;
@@ -85,7 +86,11 @@ fn tray_label(id: &str, lang: &str) -> Option<&'static str> {
         "clock" => Some(if en { "Clock" } else { "Uhrzeit" }),
         "text" => Some(if en { "Custom Text" } else { "Eigener Text" }),
         "clear" => Some(if en { "Off" } else { "Aus" }),
-        "settings" => Some(if en { "Settings…" } else { "Einstellungen…" }),
+        "settings" => Some(if en {
+            "Settings…"
+        } else {
+            "Einstellungen…"
+        }),
         "quit" => Some(if en { "Quit" } else { "Beenden" }),
         _ => None,
     }
@@ -118,6 +123,65 @@ fn set_language(lang: String, state: State<AppState>, app: AppHandle) -> Result<
     settings::save(&app, &s).map_err(|e| e.to_string())?;
     apply_tray_language(&app, &lang);
     Ok(())
+}
+
+#[tauri::command]
+async fn teams_start_login(
+    client_id: String,
+    tenant: String,
+) -> Result<teams::DeviceLogin, String> {
+    teams::start_login(&client_id, &tenant).await
+}
+
+#[tauri::command]
+async fn teams_complete_login(
+    login: teams::DeviceLogin,
+    client_id: String,
+    tenant: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<teams::TeamsAccount, String> {
+    let account = teams::complete_login(&client_id, &tenant, login).await?;
+    let mut settings = state.settings.lock().unwrap().clone();
+    settings.teams_client_id = client_id;
+    settings.teams_tenant = tenant;
+    settings.teams_account = account.username.clone();
+    settings::save(&app, &settings).map_err(|e| e.to_string())?;
+    *state.settings.lock().unwrap() = settings;
+    Ok(account)
+}
+
+#[tauri::command]
+fn teams_logout(client_id: String, state: State<AppState>, app: AppHandle) -> Result<(), String> {
+    teams::logout(&client_id)?;
+    let mut settings = state.settings.lock().unwrap().clone();
+    settings.teams_account.clear();
+    settings::save(&app, &settings).map_err(|e| e.to_string())?;
+    *state.settings.lock().unwrap() = settings;
+    Ok(())
+}
+
+// Browser-Login (Alternative zum Device-Code-Flow). Start legt den Loopback-
+// Listener an und liefert die Anmelde-URL (den oeffnet das Frontend); Complete
+// wartet auf den Callback, tauscht den Code ein und persistiert die Einstellungen.
+#[tauri::command]
+fn teams_browser_start(client_id: String, tenant: String) -> Result<teams::BrowserLoginStart, String> {
+    teams::browser_start_login(&client_id, &tenant)
+}
+
+#[tauri::command]
+async fn teams_browser_complete(
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<teams::TeamsAccount, String> {
+    let (account, client_id, tenant) = teams::browser_complete_login().await?;
+    let mut settings = state.settings.lock().unwrap().clone();
+    settings.teams_client_id = client_id;
+    settings.teams_tenant = tenant;
+    settings.teams_account = account.username.clone();
+    settings::save(&app, &settings).map_err(|e| e.to_string())?;
+    *state.settings.lock().unwrap() = settings;
+    Ok(account)
 }
 
 // Tray-Menupunkt -> (action, value) fuer das Display.
@@ -256,30 +320,77 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
 fn spawn_auto_status_watcher(app: AppHandle) {
     std::thread::spawn(move || {
         let mut last_in_use = false;
+        let mut last_teams = String::new();
         loop {
-            std::thread::sleep(Duration::from_secs(2));
+            std::thread::sleep(Duration::from_secs(10));
             let state = app.state::<AppState>();
-
-            if !state.settings.lock().unwrap().auto_call {
-                last_in_use = false; // bei Deaktivierung Flanke zuruecksetzen
-                continue;
-            }
-
-            let in_use = mic::mic_in_use();
-            if in_use == last_in_use {
-                continue;
-            }
-            last_in_use = in_use;
-
             let settings = state.settings.lock().unwrap().clone();
-            let (action, value) = if in_use {
-                ("preset".to_string(), "call".to_string())
+
+            let source = if settings.auto_source.is_empty() {
+                if settings.auto_call {
+                    "microphone"
+                } else {
+                    "off"
+                }
             } else {
-                state.last_manual.lock().unwrap().clone() // vorherigen Zustand wiederherstellen
+                settings.auto_source.as_str()
             };
-            let _ = tauri::async_runtime::block_on(transport::dispatch(&settings, &action, &value));
+            if source == "off" {
+                last_in_use = false; // bei Deaktivierung Flanke zuruecksetzen
+                last_teams.clear();
+                continue;
+            }
+
+            let command = if source == "teams" {
+                let presence = tauri::async_runtime::block_on(teams::presence(
+                    &settings.teams_client_id,
+                    &settings.teams_tenant,
+                ));
+                let key = presence
+                    .as_ref()
+                    .map(|(a, b)| format!("{a}:{b}"))
+                    .unwrap_or_default();
+                if key.is_empty() || key == last_teams {
+                    last_teams = key;
+                    continue;
+                }
+                last_teams = key;
+                match presence
+                    .map(|(availability, activity)| map_teams_status(&availability, &activity))
+                {
+                    Ok(Some(value)) => Some(("preset".to_string(), value.to_string())),
+                    Ok(None) | Err(_) => None,
+                }
+            } else {
+                let in_use = mic::mic_in_use();
+                if in_use == last_in_use {
+                    continue;
+                }
+                last_in_use = in_use;
+                Some(if in_use {
+                    ("preset".to_string(), "call".to_string())
+                } else {
+                    state.last_manual.lock().unwrap().clone()
+                })
+            };
+            if let Some((action, value)) = command {
+                let _ =
+                    tauri::async_runtime::block_on(transport::dispatch(&settings, &action, &value));
+            }
         }
     });
+}
+
+fn map_teams_status(availability: &str, activity: &str) -> Option<&'static str> {
+    if matches!(activity, "InACall" | "InAMeeting" | "InAConferenceCall") {
+        return Some("call");
+    }
+    match availability {
+        "DoNotDisturb" | "Busy" => Some("busy"),
+        "BeRightBack" => Some("brb"),
+        "Available" => Some("onair"),
+        _ => None,
+    }
 }
 
 // Haelt die Uhr des Displays ueber USB nachgestellt. Der ESP8266 hat keine RTC:
@@ -325,18 +436,24 @@ pub fn run() {
             let busy = CheckMenuItem::with_id(app, "busy", "Busy", true, false, None::<&str>)?;
             let brb = CheckMenuItem::with_id(app, "brb", "BRB", true, false, None::<&str>)?;
             let clock = CheckMenuItem::with_id(app, "clock", "Uhrzeit", true, false, None::<&str>)?;
-            let text = CheckMenuItem::with_id(app, "text", "Eigener Text", true, false, None::<&str>)?;
+            let text =
+                CheckMenuItem::with_id(app, "text", "Eigener Text", true, false, None::<&str>)?;
             let clear = CheckMenuItem::with_id(app, "clear", "Aus", true, false, None::<&str>)?;
             let status_items: Vec<(&'static str, CheckMenuItem<tauri::Wry>)> = vec![
-                ("onair", onair.clone()), ("call", call.clone()), ("busy", busy.clone()),
-                ("brb", brb.clone()), ("clock", clock.clone()), ("text", text.clone()),
+                ("onair", onair.clone()),
+                ("call", call.clone()),
+                ("busy", busy.clone()),
+                ("brb", brb.clone()),
+                ("clock", clock.clone()),
+                ("text", text.clone()),
                 ("clear", clear.clone()),
             ];
 
             // restliches Tray-Menu -- vor app.manage() erstellt, damit die Handles in
             // den AppState (fuer die Sprachumschaltung per set_text()) wandern koennen.
             let sep = PredefinedMenuItem::separator(app)?;
-            let settings_item = MenuItem::with_id(app, "settings", "Einstellungen…", true, None::<&str>)?;
+            let settings_item =
+                MenuItem::with_id(app, "settings", "Einstellungen…", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Beenden", true, None::<&str>)?;
 
             let loaded_settings = settings::load(handle);
@@ -350,7 +467,7 @@ pub fn run() {
                 settings_item: settings_item.clone(),
                 quit_item: quit_item.clone(),
             });
-            apply_tray_language(handle, &initial_lang);   // gespeicherte Sprache sofort anwenden
+            apply_tray_language(handle, &initial_lang); // gespeicherte Sprache sofort anwenden
 
             spawn_auto_status_watcher(handle.clone());
             // Tray-Markierung des aktiven Status per Hintergrund-Polling (Variante B).
@@ -361,8 +478,16 @@ pub fn run() {
             let menu = Menu::with_items(
                 app,
                 &[
-                    &onair, &call, &busy, &brb, &clock, &text, &clear,
-                    &sep, &settings_item, &quit_item,
+                    &onair,
+                    &call,
+                    &busy,
+                    &brb,
+                    &clock,
+                    &text,
+                    &clear,
+                    &sep,
+                    &settings_item,
+                    &quit_item,
                 ],
             )?;
 
@@ -387,7 +512,12 @@ pub fn run() {
             list_serial_ports,
             send_command,
             send_config,
-            set_language
+            set_language,
+            teams_start_login,
+            teams_complete_login,
+            teams_logout,
+            teams_browser_start,
+            teams_browser_complete
         ])
         .run(tauri::generate_context!())
         .expect("Fehler beim Start der Tauri-App");

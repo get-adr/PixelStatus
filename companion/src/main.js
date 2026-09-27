@@ -50,7 +50,10 @@ const T = {
     mqttPassPh: "(leer = unverändert)", mqttBase: "Basis-Topic",
     connection: "Verbindung", langLabel: "Sprache", wifiHttp: "WiFi (HTTP)", usbCable: "USB-Kabel",
     driverHint: 'Für USB wird der CH340-Treiber des D1 mini benötigt.\n      Windows: <a href="https://www.wch-ic.com/downloads/CH341SER_EXE.html" target="_blank" rel="noopener">Treiber von WCH</a>.\n      macOS: meist schon vorinstalliert, sonst\n      <a href="https://github.com/WCHSoftGroup/ch34xser_macos" target="_blank" rel="noopener">WCH-macOS-Treiber</a>.',
-    autoCallLabel: 'Automatisch „In a Call" bei Mikrofonnutzung',
+    autoSource: "Automatische Statusquelle", sourceOff: "Aus", sourceMic: "Mikrofon-Nutzung", sourceTeams: "Microsoft Teams",
+    teamsClientId: "Entra-Client-ID", teamsTenant: "Tenant", teamsLogin: "Bei Teams anmelden", teamsLogout: "Abmelden",
+    teamsLoginMethod: "Login-Methode", loginMethodBrowser: "Browser (empfohlen)", loginMethodDevice: "Device-Code",
+    teamsBrowserWaiting: "Bitte im Browser anmelden …",
     errorPrefix: "Fehler: ", saved: "Gespeichert.", savedRestartHost: "Gespeichert. Neustart (Hostname)…",
     pickTime: "Bitte eine Uhrzeit wählen.", timeSetNoNtp: "Uhrzeit gesetzt (NTP deaktiviert).",
     pickVolts: "Bitte die mit dem Multimeter gemessene Spannung eintragen.",
@@ -94,7 +97,10 @@ const T = {
     mqttPassPh: "(blank = unchanged)", mqttBase: "Base topic",
     connection: "Connection", langLabel: "Language", wifiHttp: "WiFi (HTTP)", usbCable: "USB cable",
     driverHint: 'USB requires the D1 mini\'s CH340 driver.\n      Windows: <a href="https://www.wch-ic.com/downloads/CH341SER_EXE.html" target="_blank" rel="noopener">driver from WCH</a>.\n      macOS: usually preinstalled, otherwise\n      <a href="https://github.com/WCHSoftGroup/ch34xser_macos" target="_blank" rel="noopener">WCH macOS driver</a>.',
-    autoCallLabel: 'Automatically switch to "In a Call" when the microphone is in use',
+    autoSource: "Automatic status source", sourceOff: "Off", sourceMic: "Microphone use", sourceTeams: "Microsoft Teams",
+    teamsClientId: "Entra client ID", teamsTenant: "Tenant", teamsLogin: "Sign in to Teams", teamsLogout: "Sign out",
+    teamsLoginMethod: "Login method", loginMethodBrowser: "Browser (recommended)", loginMethodDevice: "Device code",
+    teamsBrowserWaiting: "Please sign in in the browser …",
     errorPrefix: "Error: ", saved: "Saved.", savedRestartHost: "Saved. Restarting (hostname changed)…",
     pickTime: "Please choose a time.", timeSetNoNtp: "Time set (NTP disabled).",
     pickVolts: "Please enter the voltage measured with the multimeter.",
@@ -265,7 +271,12 @@ async function loadSettings() {
   const s = await invoke("get_settings");
   document.querySelector(`input[name=transport][value=${s.transport}]`).checked = true;
   document.getElementById("host").value = s.http_host;
-  document.getElementById("autoCall").checked = s.auto_call;
+  document.getElementById("autoSource").value = s.auto_source || (s.auto_call ? "microphone" : "off");
+  document.getElementById("teamsClientId").value = s.teams_client_id || "";
+  document.getElementById("teamsTenant").value = s.teams_tenant || "organizations";
+  document.getElementById("teamsLoginMethod").value = s.teams_login_method || "browser";
+  updateTeamsSettings();
+  updateTeamsAccount(s.teams_account || "");
   currentLang = s.language === "en" ? "en" : "de";
   document.getElementById("lang").value = currentLang;
   applyI18n();
@@ -292,10 +303,60 @@ document.getElementById("saveSettings").addEventListener("click", async () => {
     transport: document.querySelector("input[name=transport]:checked").value,
     http_host: document.getElementById("host").value || "pixelstatus.local",
     serial_port: document.getElementById("port").value,
-    auto_call: document.getElementById("autoCall").checked,
+    auto_call: document.getElementById("autoSource").value === "microphone",
+    auto_source: document.getElementById("autoSource").value,
+    teams_client_id: document.getElementById("teamsClientId").value.trim(),
+    teams_tenant: document.getElementById("teamsTenant").value.trim() || "organizations",
+    teams_login_method: document.getElementById("teamsLoginMethod").value,
+    teams_account: document.getElementById("teamsAccount").dataset.account || "",
     language: currentLang,   // sonst wuerde save_settings die per setLang() gesetzte Sprache ueberschreiben
   };
   await invoke("save_settings", { new: settings });
+});
+
+function updateTeamsSettings() {
+  document.getElementById("teamsSettings").classList.toggle("hidden", document.getElementById("autoSource").value !== "teams");
+}
+function updateTeamsAccount(account) {
+  const el = document.getElementById("teamsAccount");
+  el.dataset.account = account;
+  el.textContent = account ? `${tr("teamsLogin")}: ${account}` : "";
+  document.getElementById("teamsLogout").classList.toggle("hidden", !account);
+}
+document.getElementById("autoSource").addEventListener("change", updateTeamsSettings);
+document.getElementById("teamsLogin").addEventListener("click", async () => {
+  const msg = document.getElementById("teamsMsg");
+  const clientId = document.getElementById("teamsClientId").value.trim();
+  const tenant = document.getElementById("teamsTenant").value.trim() || "organizations";
+  const method = document.getElementById("teamsLoginMethod").value;
+  try {
+    if (method === "browser") {
+      msg.textContent = tr("teamsBrowserWaiting");
+      const start = await invoke("teams_browser_start", { clientId, tenant });
+      await invoke("plugin:opener|open_url", { url: start.authorize_url });
+      const account = await invoke("teams_browser_complete");
+      updateTeamsAccount(account.username || account.display_name);
+    } else {
+      msg.textContent = "…";
+      const login = await invoke("teams_start_login", { clientId, tenant });
+      await invoke("plugin:opener|open_url", { url: login.verification_uri });
+      msg.textContent = `${login.message} (${login.user_code})`;
+      const account = await invoke("teams_complete_login", { login, clientId, tenant });
+      updateTeamsAccount(account.username || account.display_name);
+    }
+    msg.textContent = tr("saved");
+  } catch (e) {
+    msg.textContent = tr("errorPrefix") + e;
+  }
+});
+document.getElementById("teamsLogout").addEventListener("click", async () => {
+  try {
+    await invoke("teams_logout", { clientId: document.getElementById("teamsClientId").value.trim() });
+    updateTeamsAccount("");
+    document.getElementById("teamsMsg").textContent = tr("saved");
+  } catch (e) {
+    document.getElementById("teamsMsg").textContent = tr("errorPrefix") + e;
+  }
 });
 
 // --- Geräte-Einstellungen: dasselbe get*/cfg*-Protokoll über den gewählten

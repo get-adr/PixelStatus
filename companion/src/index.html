@@ -160,7 +160,26 @@
       Windows: <a href="https://www.wch-ic.com/downloads/CH341SER_EXE.html" target="_blank" rel="noopener">Treiber von WCH</a>.
       macOS: meist schon vorinstalliert, sonst
       <a href="https://github.com/WCHSoftGroup/ch34xser_macos" target="_blank" rel="noopener">WCH-macOS-Treiber</a>.</p>
-    <label><input type="checkbox" id="autoCall" /> <span data-i18n="autoCallLabel">Automatisch „In a Call" bei Mikrofonnutzung</span></label>
+    <label class="f"><span data-i18n="autoSource">Automatische Statusquelle</span>
+      <select id="autoSource">
+        <option value="off" data-i18n="sourceOff">Aus</option>
+        <option value="microphone" data-i18n="sourceMic">Mikrofon-Nutzung</option>
+        <option value="teams" data-i18n="sourceTeams">Microsoft Teams</option>
+      </select>
+    </label>
+    <div id="teamsSettings" class="hidden">
+      <label class="f"><span data-i18n="teamsClientId">Entra-Client-ID</span><input type="text" id="teamsClientId" placeholder="GUID" /></label>
+      <label class="f"><span data-i18n="teamsTenant">Tenant</span><input type="text" id="teamsTenant" value="organizations" /></label>
+      <label class="f"><span data-i18n="teamsLoginMethod">Login-Methode</span>
+        <select id="teamsLoginMethod">
+          <option value="browser" data-i18n="loginMethodBrowser">Browser (empfohlen)</option>
+          <option value="device" data-i18n="loginMethodDevice">Device-Code</option>
+        </select>
+      </label>
+      <p class="hint" id="teamsAccount"></p>
+      <div class="row"><button id="teamsLogin" class="muted" data-i18n="teamsLogin">Bei Teams anmelden</button><button id="teamsLogout" class="muted hidden" data-i18n="teamsLogout">Abmelden</button></div>
+      <span class="msg" id="teamsMsg"></span>
+    </div>
     <button id="saveSettings" data-i18n="save">Speichern</button>
   </details>
 
