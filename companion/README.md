@@ -130,7 +130,7 @@ App-Registrierungen verwalten darf.
 Access- und Refresh-Tokens werden nicht in `settings.json` gespeichert, sondern
 im nativen Credential Store des Betriebssystems. `InACall`/`InAMeeting` werden
 zu „In a Call“, `Busy` zu „Busy“, `DoNotDisturb` zu „DND“, `BeRightBack` zu
-„BRB“ und `Available` zu „Frei“ (Matrix: `FREE`) abgebildet.
+„BRB“, `Away` zu „Away“ und `Available` zu „Frei“ (Matrix: `FREE`) abgebildet.
 
 Die Präsenz wird im Hintergrund alle 10 s abgefragt; ans Display geht nur eine
 Änderung. Ist Teams als Quelle gespeichert, zeigt das Fenster über den
@@ -138,6 +138,12 @@ Status-Buttons Login-Status und aktuelle Präsenz und markiert den zugeordneten
 Button mit einem „Teams“-Badge (unabhängig von der grünen Markierung, die den
 tatsächlichen Display-Inhalt zeigt). Das Fenster nutzt dafür das Ergebnis der
 Hintergrundabfrage und fragt Graph nicht zusätzlich ab.
+Schlägt eine Graph-Abfrage fehl (z. B. bei beendetem Teams oder
+Netzwerkproblemen), meldet Graph `Offline` oder keinen Verfügbarkeitswert,
+schaltet die App die Matrix sofort einmalig aus und zeigt einen Hinweis.
+Weitere Fehl- bzw. Offline-Meldungen überschreiben manuelle Bedienung nicht;
+sobald wieder eine zuordenbare Teams-Präsenz vorliegt, zeigt die Matrix deren
+Status. Andere unbekannte Werte lassen die Anzeige unverändert.
 
 ## Aufbau
 

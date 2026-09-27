@@ -269,7 +269,10 @@ async fn current_token(client_id: &str, tenant: &str) -> Result<StoredToken, Str
         .refresh_token
         .clone()
         .ok_or("Teams-Anmeldung abgelaufen.".to_string())?;
-    let client = Client::new();
+    let client = Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .map_err(|e| format!("Teams-Token-Erneuerung: {e}"))?;
     let response = token_request(
         &client,
         &format!("{}/oauth2/v2.0/token", tenant_base(tenant)),
@@ -295,7 +298,10 @@ async fn current_token(client_id: &str, tenant: &str) -> Result<StoredToken, Str
 }
 
 pub async fn presence(client_id: &str, tenant: &str) -> Result<(String, String), String> {
-    let client = Client::new();
+    let client = Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .map_err(|e| format!("Teams-Präsenz: {e}"))?;
     let token = current_token(client_id, tenant).await?;
     let response = client
         .get("https://graph.microsoft.com/v1.0/me/presence")

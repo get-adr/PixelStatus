@@ -13,6 +13,7 @@ inline bool applyPreset(DisplayManager& d, const String& name) {
   else if (n == "brb")                    d.showMessage("BRB");
   else if (n == "dnd")                    d.showMessage("DND");
   else if (n == "free")                   d.showMessage("FREE");
+  else if (n == "away")                   d.showMessage("AWAY");
   else if (n == "off" || n == "clear")    d.clear();
   else return false;
   return true;

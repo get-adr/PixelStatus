@@ -304,6 +304,7 @@ static const char PAGE[] PROGMEM = R"HTML(<!DOCTYPE html>
  <button data-txt="BRB" onclick="preset('brb')">BRB</button>
  <button data-txt="FREE" onclick="preset('free')" data-i18n="free">Frei</button>
  <button data-txt="DND" onclick="preset('dnd')">DND</button>
+ <button data-txt="AWAY" onclick="preset('away')">Away</button>
  <button data-mode="clock" onclick="clock()" data-i18n="clock">Uhrzeit</button>
  <button data-mode="text" onclick="choose('text')" data-i18n="customText">Eigener Text</button>
  <button data-mode="timer" onclick="choose('timer')" data-i18n="timer">Timer</button>
@@ -375,7 +376,7 @@ function toggleTheme(){
 }
 themeIcon();
 
-const PRESETS=['ON AIR','IN A CALL','BUSY','BRB'];
+const PRESETS=['ON AIR','IN A CALL','BUSY','BRB','DND','FREE','AWAY'];
 let sel=null;   // aktuell gewaehltes Panel: 'text' | 'timer' | null
 
 // Blendet das Config-Panel des gewaehlten Modus ein, andere aus.

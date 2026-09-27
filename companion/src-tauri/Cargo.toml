@@ -1,6 +1,6 @@
 [package]
 name = "pixelstatus-companion"
-version = "0.3.0"
+version = "0.3.1"
 description = "Tray companion for the ESP8266 pixel status display"
 edition = "2021"
 

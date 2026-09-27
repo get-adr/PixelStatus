@@ -265,6 +265,7 @@ fn menu_command(id: &str) -> Option<(&'static str, &'static str)> {
         "brb" => Some(("preset", "brb")),
         "free" => Some(("preset", "free")),
         "dnd" => Some(("preset", "dnd")),
+        "away" => Some(("preset", "away")),
         "clock" => Some(("clock", "on")),
         "clear" => Some(("clear", "")),
         _ => None,
@@ -284,6 +285,7 @@ fn active_status_id(json: &str) -> Option<String> {
         "BRB" => "brb",
         "FREE" => "free",
         "DND" => "dnd",
+        "AWAY" => "away",
         // Jeder andere Text (z. B. die IP nach dem Neustart) ist "Eigener Text".
         _ if mode.contains("text") => "text",
         _ => match mode {
@@ -390,13 +392,66 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
     }
 }
 
+#[derive(Default)]
+struct TeamsAutoState {
+    last_sent: String,
+    cleared: bool,
+}
+
+impl TeamsAutoState {
+    fn next_command(
+        &mut self,
+        presence: &Result<(String, String), String>,
+    ) -> Option<(&'static str, &'static str)> {
+        match presence {
+            Err(_) => (!self.cleared).then_some(("clear", "")),
+            Ok((availability, activity)) => {
+                if availability.is_empty() || availability == "Offline" {
+                    return if self.cleared {
+                        None
+                    } else {
+                        Some(("clear", ""))
+                    };
+                }
+                let key = format!("{availability}:{activity}");
+                if key == self.last_sent {
+                    return None;
+                }
+                match map_teams_status(availability, activity) {
+                    Some(preset) => Some(("preset", preset)),
+                    None => {
+                        self.last_sent = key;
+                        None
+                    }
+                }
+            }
+        }
+    }
+
+    fn command_succeeded(&mut self, presence: &Result<(String, String), String>) {
+        if let Ok((availability, activity)) = presence {
+            if availability.is_empty() || availability == "Offline" {
+                self.last_sent.clear();
+                self.cleared = true;
+            } else {
+                self.last_sent = format!("{availability}:{activity}");
+                self.cleared = false;
+            }
+        } else {
+            self.last_sent.clear();
+            self.cleared = true;
+        }
+    }
+}
+
 // Pollt im Hintergrund die Mikrofonnutzung. Schaltet bei Aktivierung auf
 // "In a Call" und stellt beim Auflegen den zuletzt manuell gesetzten Status wieder
 // her. Laeuft als OS-Thread (block_on fuer den async Transport).
 fn spawn_auto_status_watcher(app: AppHandle) {
     std::thread::spawn(move || {
         let mut last_in_use = false;
-        let mut last_teams = String::new();
+        let mut teams_state = TeamsAutoState::default();
+        let mut last_source = String::new();
         loop {
             std::thread::sleep(Duration::from_secs(10));
             let state = app.state::<AppState>();
@@ -411,48 +466,45 @@ fn spawn_auto_status_watcher(app: AppHandle) {
             } else {
                 settings.auto_source.as_str()
             };
+            if source != last_source {
+                teams_state = TeamsAutoState::default();
+                last_source = source.to_string();
+            }
             if source == "off" {
                 last_in_use = false; // bei Deaktivierung Flanke zuruecksetzen
-                last_teams.clear();
                 *state.teams_last.lock().unwrap() = None;
                 continue;
             }
 
-            let command = if source == "teams" {
+            if source == "teams" {
                 let presence = tauri::async_runtime::block_on(teams::presence(
                     &settings.teams_client_id,
                     &settings.teams_tenant,
                 ));
                 *state.teams_last.lock().unwrap() =
                     Some((settings.teams_client_id.clone(), presence.clone()));
-                let key = presence
-                    .as_ref()
-                    .map(|(a, b)| format!("{a}:{b}"))
-                    .unwrap_or_default();
-                if key.is_empty() || key == last_teams {
-                    last_teams = key;
-                    continue;
-                }
-                last_teams = key;
-                match presence
-                    .map(|(availability, activity)| map_teams_status(&availability, &activity))
-                {
-                    Ok(Some(value)) => Some(("preset".to_string(), value.to_string())),
-                    Ok(None) | Err(_) => None,
+                if let Some((action, value)) = teams_state.next_command(&presence) {
+                    match tauri::async_runtime::block_on(transport::dispatch(
+                        &settings, action, value,
+                    )) {
+                        Ok(_) => teams_state.command_succeeded(&presence),
+                        Err(e) => {
+                            eprintln!("Teams-Status konnte nicht ans Display gesendet werden: {e}")
+                        }
+                    }
                 }
             } else {
+                *state.teams_last.lock().unwrap() = None;
                 let in_use = mic::mic_in_use();
                 if in_use == last_in_use {
                     continue;
                 }
                 last_in_use = in_use;
-                Some(if in_use {
+                let (action, value) = if in_use {
                     ("preset".to_string(), "call".to_string())
                 } else {
                     state.last_manual.lock().unwrap().clone()
-                })
-            };
-            if let Some((action, value)) = command {
+                };
                 let _ =
                     tauri::async_runtime::block_on(transport::dispatch(&settings, &action, &value));
             }
@@ -461,15 +513,94 @@ fn spawn_auto_status_watcher(app: AppHandle) {
 }
 
 fn map_teams_status(availability: &str, activity: &str) -> Option<&'static str> {
+    if availability.is_empty() || availability == "Offline" {
+        return None;
+    }
     if matches!(activity, "InACall" | "InAMeeting" | "InAConferenceCall") {
         return Some("call");
     }
+
     match availability {
         "Busy" => Some("busy"),
         "DoNotDisturb" => Some("dnd"),
         "BeRightBack" => Some("brb"),
         "Available" => Some("free"),
+        "Away" => Some("away"),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod teams_auto_tests {
+    use super::TeamsAutoState;
+
+    #[test]
+    fn clears_on_error_once_and_restores_on_recovery() {
+        let mut state = TeamsAutoState::default();
+        let available = Ok(("Available".into(), "Available".into()));
+        let error = Err("Graph nicht erreichbar".into());
+        assert_eq!(state.next_command(&available), Some(("preset", "free")));
+        state.command_succeeded(&available);
+        assert_eq!(state.next_command(&error), Some(("clear", "")));
+        // Fehlgeschlagener Display-Befehl wird erneut versucht.
+        assert_eq!(state.next_command(&error), Some(("clear", "")));
+        state.command_succeeded(&error);
+        assert_eq!(state.next_command(&error), None);
+        assert_eq!(state.next_command(&available), Some(("preset", "free")));
+        state.command_succeeded(&available);
+        assert_eq!(state.next_command(&available), None);
+    }
+
+    #[test]
+    fn away_maps_to_away_and_unknown_presence_does_not_turn_off_display() {
+        let mut state = TeamsAutoState::default();
+        let away = Ok(("Away".into(), "Away".into()));
+        assert_eq!(state.next_command(&away), Some(("preset", "away")));
+        state.command_succeeded(&away);
+        assert_eq!(state.next_command(&away), None);
+        assert_eq!(
+            state.next_command(&Ok(("PresenceUnknown".into(), "Unknown".into()))),
+            None
+        );
+    }
+
+    #[test]
+    fn offline_clears_once_even_with_call_activity_and_recovers() {
+        let mut state = TeamsAutoState::default();
+        let available = Ok(("Available".into(), "Available".into()));
+        let offline = Ok(("Offline".into(), "InACall".into()));
+        assert_eq!(state.next_command(&available), Some(("preset", "free")));
+        state.command_succeeded(&available);
+        assert_eq!(state.next_command(&offline), Some(("clear", "")));
+        assert_eq!(state.next_command(&offline), Some(("clear", "")));
+        state.command_succeeded(&offline);
+        assert_eq!(state.next_command(&offline), None);
+        assert_eq!(state.next_command(&available), Some(("preset", "free")));
+        state.command_succeeded(&available);
+        assert_eq!(state.next_command(&available), None);
+    }
+
+    #[test]
+    fn offline_after_error_clear_does_not_clear_again() {
+        let mut state = TeamsAutoState::default();
+        let error = Err("Graph nicht erreichbar".into());
+        let offline = Ok(("Offline".into(), "Offline".into()));
+        assert_eq!(state.next_command(&error), Some(("clear", "")));
+        state.command_succeeded(&error);
+        assert_eq!(state.next_command(&offline), None);
+    }
+
+    #[test]
+    fn empty_graph_presence_clears_even_with_call_activity() {
+        let mut state = TeamsAutoState::default();
+        let empty = Ok((String::new(), "InACall".into()));
+        assert_eq!(state.next_command(&empty), Some(("clear", "")));
+        state.command_succeeded(&empty);
+        assert_eq!(state.next_command(&empty), None);
+        assert_eq!(
+            state.next_command(&Ok(("Away".into(), "Away".into()))),
+            Some(("preset", "away"))
+        );
     }
 }
 
@@ -517,6 +648,7 @@ pub fn run() {
             let brb = CheckMenuItem::with_id(app, "brb", "BRB", true, false, None::<&str>)?;
             let free = CheckMenuItem::with_id(app, "free", "Frei", true, false, None::<&str>)?;
             let dnd = CheckMenuItem::with_id(app, "dnd", "DND", true, false, None::<&str>)?;
+            let away = CheckMenuItem::with_id(app, "away", "Away", true, false, None::<&str>)?;
             let clock = CheckMenuItem::with_id(app, "clock", "Uhrzeit", true, false, None::<&str>)?;
             let text =
                 CheckMenuItem::with_id(app, "text", "Eigener Text", true, false, None::<&str>)?;
@@ -528,6 +660,7 @@ pub fn run() {
                 ("brb", brb.clone()),
                 ("free", free.clone()),
                 ("dnd", dnd.clone()),
+                ("away", away.clone()),
                 ("clock", clock.clone()),
                 ("text", text.clone()),
                 ("clear", clear.clone()),
@@ -569,6 +702,7 @@ pub fn run() {
                     &brb,
                     &free,
                     &dnd,
+                    &away,
                     &clock,
                     &text,
                     &clear,

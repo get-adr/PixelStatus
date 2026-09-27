@@ -56,6 +56,8 @@ const T = {
     teamsBrowserWaiting: "Bitte im Browser anmelden …",
     teamsRefresh: "Präsenz laden", teamsLoggedIn: "Angemeldet:", teamsLoggedOut: "Nicht angemeldet",
     teamsPresence: "Teams-Status", teamsShows: "zeigt", teamsNoMap: "keine Zuordnung (Anzeige bleibt)",
+    teamsUnavailable: "Teams-Präsenz nicht erreichbar → Matrix aus (bei Wiederverbindung erneut aktiviert)",
+    teamsOffline: "Offline → Matrix aus",
     errorPrefix: "Fehler: ", saved: "Gespeichert.", savedRestartHost: "Gespeichert. Neustart (Hostname)…",
     pickTime: "Bitte eine Uhrzeit wählen.", timeSetNoNtp: "Uhrzeit gesetzt (NTP deaktiviert).",
     pickVolts: "Bitte die mit dem Multimeter gemessene Spannung eintragen.",
@@ -105,6 +107,8 @@ const T = {
     teamsBrowserWaiting: "Please sign in in the browser …",
     teamsRefresh: "Load presence", teamsLoggedIn: "Signed in:", teamsLoggedOut: "Not signed in",
     teamsPresence: "Teams status", teamsShows: "shows", teamsNoMap: "no mapping (display unchanged)",
+    teamsUnavailable: "Teams presence unavailable → display off (returns when the connection recovers)",
+    teamsOffline: "Offline → display off",
     errorPrefix: "Error: ", saved: "Saved.", savedRestartHost: "Saved. Restarting (hostname changed)…",
     pickTime: "Please choose a time.", timeSetNoNtp: "Time set (NTP disabled).",
     pickVolts: "Please enter the voltage measured with the multimeter.",
@@ -136,7 +140,7 @@ async function setLang(l) {
 document.getElementById("lang").addEventListener("change", (e) => setLang(e.target.value));
 
 // Preset-Wert -> angezeigter Text (fuer die Markierung des aktiven Status).
-const PRESET_TEXT = { onair: "ON AIR", call: "IN A CALL", busy: "BUSY", brb: "BRB", free: "FREE", dnd: "DND" };
+const PRESET_TEXT = { onair: "ON AIR", call: "IN A CALL", busy: "BUSY", brb: "BRB", free: "FREE", dnd: "DND", away: "AWAY" };
 
 // Markiert den Button, der zum aktuellen Anzeige-Zustand passt.
 function highlight(st) {
@@ -342,7 +346,7 @@ function updateTeamsAccount(loggedIn, name) {
   document.getElementById("teamsLogout").classList.toggle("hidden", !loggedIn);
 }
 // Mappede Matrix-Status-Namen (fest Englisch, wie die Presets) fuer die Anzeige.
-const TEAMS_DISPLAY = { onair: "On Air", call: "In a Call", busy: "Busy", brb: "BRB", dnd: "DND" };
+const TEAMS_DISPLAY = { onair: "On Air", call: "In a Call", busy: "Busy", brb: "BRB", dnd: "DND", away: "Away" };
 
 // Gespeicherte (= vom Auto-Status-Watcher tatsaechlich genutzte) Teams-
 // Einstellungen. Die Statuszeile im Hauptbereich richtet sich danach, nicht
@@ -351,11 +355,12 @@ let savedTeams = { source: "off", clientId: "", tenant: "organizations" };
 let lastTeamsSt = null;
 
 function teamsPresenceText(st) {
+  if (st.error) return tr("teamsUnavailable");
+  if (!st.availability || st.availability === "Offline") return tr("teamsOffline");
   let line = tr("teamsPresence") + ": " + (st.availability || "–") + " · " + (st.activity || "–");
   if (st.availability) {
     line += "  →  " + (st.display ? tr("teamsShows") + " " + (st.display === "free" ? tr("free") : TEAMS_DISPLAY[st.display] || st.display) : tr("teamsNoMap"));
   }
-  if (st.error) line += "  (" + st.error + ")";
   return line;
 }
 
